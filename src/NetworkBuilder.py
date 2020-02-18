@@ -69,11 +69,11 @@ class Builder:
 
     @staticmethod
     def sum(values):
-        return 0
+        return tf.add_n(values)
 
     @staticmethod
     def concat(values):
-        return 0
+        return tf.concat(values, 3)
 
 
 class SerialData(ABC):
