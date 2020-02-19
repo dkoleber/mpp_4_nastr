@@ -1,9 +1,19 @@
+from __future__ import annotations
 import numpy as np
 import tensorflow as tf
 from abc import ABC, abstractmethod
-from __future__ import annotations
 from typing import List, Tuple
 from enum import Enum
+import os
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+res_dir = os.path.join(HERE,'..\\res\\')
+tensorboard_dir = os.path.join(HERE,'..\\tensorboard\\')
+
+tf.compat.v1.disable_eager_execution()
+
 
 '''
 1. Aging Selection
@@ -54,18 +64,18 @@ change operation / change input
 '''
 
 IDENTITY_THRESHOLD = .33
-NORMAL_CELL_N = 3
-CELL_LAYERS = 3
+NORMAL_CELL_N = 2
+CELL_LAYERS = 1
 
 
 class Builder:
-    @staticmethod
-    def add_op(values):
-        return None
 
     @staticmethod
     def get_op(op_type: OperationType, op_input):
-        return 0  # TODO
+        if op_type == OperationType.IDENTITY:
+            return tf.identity(op_input)
+        elif op_type == OperationType.CONV3x3:
+            return tf.nn.conv2d(op_input, 8, 1, 'same')
 
     @staticmethod
     def sum(values):
@@ -74,6 +84,10 @@ class Builder:
     @staticmethod
     def concat(values):
         return tf.concat(values, 3)
+
+    @staticmethod
+    def dense(layer_input):
+        return tf.keras.layers.Dense(10)(layer_input)
 
 
 class SerialData(ABC):
@@ -87,7 +101,8 @@ class SerialData(ABC):
 
 
 class OperationType(Enum):
-    IDENTITY = 1
+    IDENTITY = 1,
+    CONV3x3 = 2,
 
 
 class OperationItem:
@@ -118,28 +133,20 @@ class Block:
     def __init__(self, num_inputs: int):
         self.groups: List[Group] = []
         self.num_inputs = num_inputs
-    # def mutate(self):
-    # choice = np.random.random()
-        # thresholds = [0,0]
-        # if choice < thresholds[0]:
-        #     pass  # identity
-        # elif thresholds[0] < choice < thresholds[1]:
-        #     pass  # add/remove block TODO
-        # elif thresholds[1] < choice < thresholds[2]:
-        #
-        #     pass  # alter block
 
     def build_block(self, block_inputs):
         available_inputs = block_inputs
         attachments = [False for x in range(len(self.groups) + len(block_inputs))]
         for group in self.groups:
             group_output, group_attachments = group.build_group(available_inputs)
+            print(group_output.shape, group_attachments)
             available_inputs.append(group_output)
             for attachment in group_attachments:
                 attachments[attachment] = True
             # attachments[group.index + len(block_inputs)] = False  # this is implicit since it starts as false
         unattached = [available_inputs[x] for x in range(len(attachments)) if not attachments[x]]
-        return Builder.concat(unattached)
+        print(unattached)
+        return Builder.sum(unattached) #TODO: change
 
 
 class Model:
@@ -162,11 +169,20 @@ class Model:
         for block in self.blocks:
             block_ops.append(block.build_block)
 
-        block_input = graph_input
+        block_input = [graph_input]
         for layer in range(CELL_LAYERS):
             for normal_cells in range(NORMAL_CELL_N):
-                block_input = block_ops[0](block_input)
-            block_input = block_ops[1](block_input)
+                with tf.name_scope(f'normal_cell_{layer}_{normal_cells}'):
+                    block_input = [block_ops[0](block_input)]  # TODO: add residual connections
+            with tf.name_scope(f'reduction_cell_{layer}'):
+                block_input = [block_ops[1](block_input)]
+
+
+        with tf.name_scope(f'end_block'):
+            block_input = Builder.concat(block_input)
+            block_input = tf.keras.layers.Flatten()(block_input)
+            block_input = Builder.dense(block_input)
+            block_input = tf.keras.activations.softmax(block_input)
 
         return block_input
 
@@ -230,7 +246,7 @@ class AgingStrategy(EvolutionStrategy):
         return population[1:]
 
 
-def main():
+def do_evolution():
     rounds = 10
     population_size = 10
 
@@ -244,3 +260,30 @@ def main():
     history_fitness = [x.fitness for x in history]
     best_candidate = int(np.argmax(history_fitness))
     return history[best_candidate]
+
+
+def do_test():
+    # writer = tf.summary.create_file_writer('../res/')
+    model_obj = Model()
+    model_obj.populate_with_NASnet_blocks()
+
+    model_input = tf.keras.Input(shape=[16, 16, 3])
+    model_output = model_obj.build_graph(model_input)
+    model = tf.keras.Model(inputs=model_input, outputs=model_output)
+
+    train_images = np.zeros([4, 16, 16, 3])
+    train_labels = np.zeros([4, 10])
+
+
+    model_name = 'evo_' + str(time.time())[4:-4]
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, model_name))
+
+    model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+
+    print(f'----{model_name}')
+
+    model.fit(train_images, train_labels, batch_size=1, epochs=1, callbacks=[tensorboard_callback])
+
+
+if __name__ == '__main__':
+    do_test()
