@@ -1,9 +1,10 @@
 from __future__ import annotations
 import numpy as np
+import tensorflow.python as tfp
 import tensorflow as tf
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from enum import Enum
+from enum import Enum, IntEnum
 import os
 import time
 
@@ -67,27 +68,73 @@ IDENTITY_THRESHOLD = .33
 NORMAL_CELL_N = 2
 CELL_LAYERS = 1
 
+#
+# class Builder:
+#     @staticmethod
+#     def get_op(op_type: OperationType, op_input):
+#         if op_type == OperationType.IDENTITY:
+#             return tf.identity(op_input)
+#         elif op_type == OperationType.CONV3x3:
+#             return tf.compat.v1.layers.conv2d(op_input, 8, 1, 1, 'same')
+#
+#     @staticmethod
+#     def add(values):
+#         return tf.add_n(values)
+#
+#     @staticmethod
+#     def concat(values):
+#         return tf.concat(values, axis=3)
+#
+#     @staticmethod
+#     def dense(layer_input):
+#         return tf.compat.v1.layers.dense(layer_input, 10)
+#
+#     @staticmethod
+#     def flatten(layer_input):
+#         return tf.compat.v1.layers.flatten(layer_input)
+#
+#     @staticmethod
+#     def softmax(layer_input):
+#         return tf.nn.softmax(layer_input)
 
 class Builder:
+    def __init__(self):
+        self.count_names = {}
 
-    @staticmethod
-    def get_op(op_type: OperationType, op_input):
+    def get_name(self, name):
+        scope = tfp.keras.backend.get_session().graph.get_name_scope()
+        full_name = f'{scope}/{name}'
+        if full_name in self.count_names:
+            self.count_names[full_name] += 1
+        else:
+            self.count_names[full_name] = 0
+        return f'{full_name}_{self.count_names[full_name]}'
+
+    def get_op(self, op_type: OperationType, op_input):
         if op_type == OperationType.IDENTITY:
-            return tf.identity(op_input)
+            return self.identity(op_input)
         elif op_type == OperationType.CONV3x3:
-            return tf.nn.conv2d(op_input, 8, 1, 'same')
+            return tf.keras.layers.Conv2D(1, 3, 1, 'same', name=self.get_name('conv2d'))(op_input)
 
-    @staticmethod
-    def sum(values):
-        return tf.add_n(values)
+    def add(self, values):
+        return tf.keras.layers.Add(name=self.get_name('add'))(values)
 
-    @staticmethod
-    def concat(values):
-        return tf.concat(values, 3)
+    def concat(self, values, scope=''):
+        # return tf.keras.layers.Concatenate(axis=3, name=self.get_name('concat'))(values)
+        return tf.keras.layers.Add(name=self.get_name('fakeconcat'))(values) #TODO: change to concat?
 
-    @staticmethod
-    def dense(layer_input):
-        return tf.keras.layers.Dense(10)(layer_input)
+    def dense(self, layer_input, scope=''):
+        return tf.keras.layers.Dense(10, name=self.get_name('dense'))(layer_input)
+
+    def flatten(self, layer_input, scope=''):
+        return tf.keras.layers.Flatten(name=self.get_name('flatten'))(layer_input)
+
+    def softmax(self, layer_input):
+        return tf.keras.layers.Softmax(name=self.get_name('softmax'))(layer_input)
+
+    def identity(self, layer_input):
+        # return tf.identity(layer_input, name=self.get_name('identity'))  # don't use- messes with scoping
+        return tf.keras.layers.Lambda(lambda x: x, name=self.get_name('identity'))(layer_input)
 
 
 class SerialData(ABC):
@@ -100,9 +147,9 @@ class SerialData(ABC):
         pass
 
 
-class OperationType(Enum):
-    IDENTITY = 1,
-    CONV3x3 = 2,
+class OperationType(IntEnum):
+    IDENTITY = 0,
+    CONV3x3 = 1,
 
 
 class OperationItem:
@@ -111,22 +158,23 @@ class OperationItem:
         self.attachment_index: int = attachment_index
         self.actual_attachment: int = 0
 
-    def build_operation(self, operation_input):
-        return Builder.get_op(self.operation_type, operation_input)
+    def build_operation(self, operation_input, builder: Builder):
+        return builder.get_op(self.operation_type, operation_input)
 
 
 class Group:
     def __init__(self):
         self.operations: List[OperationItem] = []
 
-    def build_group(self, available_inputs):
+    def build_group(self, available_inputs, builder: Builder):
         outputs = []
         attachments = []
         for operation in self.operations:
-            built_op = operation.build_operation(available_inputs[operation.actual_attachment])
+            built_op = operation.build_operation(available_inputs[operation.actual_attachment], builder)
             outputs.append(built_op)
             attachments.append(operation.actual_attachment)
-        return Builder.sum(outputs), attachments
+        addition = builder.add(outputs)
+        return addition, attachments
 
 
 class Block:
@@ -134,19 +182,18 @@ class Block:
         self.groups: List[Group] = []
         self.num_inputs = num_inputs
 
-    def build_block(self, block_inputs):
-        available_inputs = block_inputs
+    def build_block(self, block_inputs, builder):
+        available_inputs = [builder.identity(x) for x in block_inputs]
         attachments = [False for x in range(len(self.groups) + len(block_inputs))]
-        for group in self.groups:
-            group_output, group_attachments = group.build_group(available_inputs)
-            print(group_output.shape, group_attachments)
-            available_inputs.append(group_output)
-            for attachment in group_attachments:
-                attachments[attachment] = True
-            # attachments[group.index + len(block_inputs)] = False  # this is implicit since it starts as false
+        for group_num, group in enumerate(self.groups):
+            with tf.name_scope(f'group_{group_num}'):
+                group_output, group_attachments = group.build_group(available_inputs, builder)
+                available_inputs.append(group_output)
+                for attachment in group_attachments:
+                    attachments[attachment] = True
+                # attachments[group.index + len(block_inputs)] = False  # this is implicit since it starts as false
         unattached = [available_inputs[x] for x in range(len(attachments)) if not attachments[x]]
-        print(unattached)
-        return Builder.sum(unattached) #TODO: change
+        return builder.concat(unattached)
 
 
 class Model:
@@ -154,53 +201,80 @@ class Model:
         self.blocks: List[Block] = []  # [NORMAL_CELL, REDUCTION_CELL]
 
     def populate_with_NASnet_blocks(self):
+        groups_in_block = 8
+        ops_in_group = 3
+        group_inputs = 2
+
         def get_block():
-            block = Block(2)
-            block.groups = [Group() for x in range(5)]
-            for i in range(5):
-                block.groups[i].operations = [OperationItem(i + 2) for x in range(2)]  # +2 because 2 inputs for block, range(2) because pairwise groups
+            block = Block(group_inputs)
+            block.groups = [Group() for x in range(groups_in_block)]
+            for i in range(groups_in_block):
+                block.groups[i].operations = [OperationItem(i + group_inputs) for x in range(ops_in_group)]  # +2 because 2 inputs for block, range(2) because pairwise groups
+                for j in range(ops_in_group):
+                    block.groups[i].operations[j].actual_attachment = min(j, group_inputs - 1)
                 # TODO set operations
             return block
         self.blocks.append(get_block())  # normal block
         self.blocks.append(get_block())  # reduction block
 
     def build_graph(self, graph_input):
+        builder = Builder()
+
         block_ops = []
         for block in self.blocks:
             block_ops.append(block.build_block)
 
-        block_input = [graph_input]
+        previous_output = graph_input
+        block_input = [graph_input, previous_output]
         for layer in range(CELL_LAYERS):
             for normal_cells in range(NORMAL_CELL_N):
                 with tf.name_scope(f'normal_cell_{layer}_{normal_cells}'):
-                    block_input = [block_ops[0](block_input)]  # TODO: add residual connections
+                    block_output = block_ops[0](block_input, builder)
+                    block_input = [block_output, previous_output]
+                    previous_output = block_output
             with tf.name_scope(f'reduction_cell_{layer}'):
-                block_input = [block_ops[1](block_input)]
+                block_output = block_ops[1](block_input, builder)
+                block_input = [block_output, previous_output]
+                previous_output = block_output
 
 
         with tf.name_scope(f'end_block'):
-            block_input = Builder.concat(block_input)
-            block_input = tf.keras.layers.Flatten()(block_input)
-            block_input = Builder.dense(block_input)
-            block_input = tf.keras.activations.softmax(block_input)
+            output = builder.concat(block_input)
+            output = builder.flatten(output)
+            output = builder.dense(output)
+            output = builder.softmax(output)
 
-        return block_input
+
+        return output
 
     def mutate(self):
 
         other_mutation_threshold = ((1 - IDENTITY_THRESHOLD) / 2.) + IDENTITY_THRESHOLD
 
-        select_block = self.blocks[int(np.random.random() * len(self.blocks))]
-        select_group = select_block.groups[int(np.random.random() * len(select_block.groups))]
-        select_item = select_group.operations[int(np.random.random() * len(select_group.operations))]
+        block_index = int(np.random.random() * len(self.blocks))
+        select_block = self.blocks[block_index]
+        group_index = int(np.random.random() * len(select_block.groups))
+        select_group = select_block.groups[group_index]
+        item_index = int(np.random.random() * len(select_group.operations))
+        select_item = select_group.operations[item_index]
         select_mutation = np.random.random()
+        print(f'--mutating block {block_index}, group {group_index}, item {item_index}')
         if select_mutation < IDENTITY_THRESHOLD:
+            print('identity mutation')
             return
         elif IDENTITY_THRESHOLD < select_mutation < other_mutation_threshold:
             # hidden state mutation = change inputs
-            select_item.actual_attachment = int(np.random.random() * select_item.attachment_index)
+            if group_index != 0:
+                previous_attachment = select_item.actual_attachment
+                select_item.actual_attachment = int(np.random.random() * select_item.attachment_index)
+                print(f'mutating hidden state from {previous_attachment} to {select_item.actual_attachment}')
+            else:
+                print(f'skipping state mutation for group 0')
+
         else:
-            select_item.operation_type = int(np.random.random() * OperationType.IDENTITY)
+            previous_op = select_item.operation_type
+            select_item.operation_type = int(np.random.random() * (OperationType.CONV3x3 + 1))
+            print(f'mutating operation type from {previous_op} to {select_item.operation_type}')
 
 
 class Candidate:
@@ -263,26 +337,36 @@ def do_evolution():
 
 
 def do_test():
-    # writer = tf.summary.create_file_writer('../res/')
     model_obj = Model()
     model_obj.populate_with_NASnet_blocks()
 
-    model_input = tf.keras.Input(shape=[16, 16, 3])
-    model_output = model_obj.build_graph(model_input)
-    model = tf.keras.Model(inputs=model_input, outputs=model_output)
-
-    train_images = np.zeros([4, 16, 16, 3])
-    train_labels = np.zeros([4, 10])
+    for x in range(100):
+        model_obj.mutate()
 
 
-    model_name = 'evo_' + str(time.time())[4:-4]
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, model_name))
+    # writer = tf.summary.create_file_writer('../res/')
+    keras_graph = tfp.keras.backend.get_session().graph
 
-    model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+    with keras_graph.as_default():
 
-    print(f'----{model_name}')
 
-    model.fit(train_images, train_labels, batch_size=1, epochs=1, callbacks=[tensorboard_callback])
+
+        model_input = tf.keras.Input(shape=[16, 16, 3])
+        model_output = model_obj.build_graph(model_input)
+        model = tf.keras.Model(inputs=model_input, outputs=model_output)
+
+        train_images = np.zeros([4, 16, 16, 3])
+        train_labels = np.zeros([4, 10])
+
+
+        model_name = 'evo_' + str(time.time())[4:-4]
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, model_name))
+
+        model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+
+        print(f'----{model_name}')
+
+        model.fit(train_images, train_labels, batch_size=1, epochs=1, callbacks=[tensorboard_callback])
 
 
 if __name__ == '__main__':
