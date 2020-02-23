@@ -14,6 +14,15 @@ res_dir = os.path.join(HERE,'..\\res\\')
 tensorboard_dir = os.path.join(HERE,'..\\tensorboard\\')
 
 tf.compat.v1.disable_eager_execution()
+'''
+TODO:
+- random selection of re-attachments with exclusions for existing attachments
+- initial layer resizing
+- activations
+- no final reduction layer at end
+
+
+'''
 
 
 '''
@@ -65,8 +74,10 @@ change operation / change input
 '''
 
 IDENTITY_THRESHOLD = .33
-NORMAL_CELL_N = 2
-CELL_LAYERS = 1
+NORMAL_CELL_N = 3
+CELL_LAYERS = 3
+
+OP_DIMS = 8
 
 #
 # class Builder:
@@ -97,6 +108,18 @@ CELL_LAYERS = 1
 #     def softmax(layer_input):
 #         return tf.nn.softmax(layer_input)
 
+
+class OperationType(IntEnum):
+    IDENTITY = 0,
+    SEP_3X3 = 1,
+    SEP_5X5 = 2,
+    SEP_7X7 = 3,
+    AVG_3X3 = 4,
+    MAX_3X3 = 5,
+    DIL_3X3 = 6,
+    SEP_1X7_7X1 = 7
+
+
 class Builder:
     def __init__(self):
         self.count_names = {}
@@ -111,17 +134,34 @@ class Builder:
         return f'{full_name}_{self.count_names[full_name]}'
 
     def get_op(self, op_type: OperationType, op_input):
-        if op_type == OperationType.IDENTITY:
-            return self.identity(op_input)
-        elif op_type == OperationType.CONV3x3:
-            return tf.keras.layers.Conv2D(1, 3, 1, 'same', name=self.get_name('conv2d'))(op_input)
+        input_shape = op_input.shape[-1]
+        if op_type == OperationType.SEP_3X3:
+            return tf.keras.layers.SeparableConv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'))(op_input)
+        elif op_type == OperationType.SEP_5X5:
+            return tf.keras.layers.SeparableConv2D(input_shape, 5, 1, 'same', name=self.get_name('SEP_5X5'))(op_input)
+        elif op_type == OperationType.SEP_7X7:
+            return tf.keras.layers.SeparableConv2D(input_shape, 7, 1, 'same', name=self.get_name('SEP_7X7'))(op_input)
+        elif op_type == OperationType.AVG_3X3:
+            return tf.keras.layers.AveragePooling2D(3, 1, 'same', name=self.get_name('AVG_3X3'))(op_input)
+        elif op_type == OperationType.MAX_3X3:
+            return tf.keras.layers.MaxPool2D(3, 1, 'same', name=self.get_name('MAX_3X3'))(op_input)
+        elif op_type == OperationType.DIL_3X3:
+            return tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('DIL_3X3'), dilation_rate=2)(op_input)
+        elif op_type == OperationType.SEP_1X7_7X1:
+            layer = tf.keras.layers.Conv2D(input_shape, (1, 7), 1, 'same', name=self.get_name('SEP_1X7'))(op_input)
+            return tf.keras.layers.Conv2D(input_shape, (7, 1), 1, 'same', name=self.get_name('SEP_7X1'))(layer)
+        else: # OperationType.IDENTITY and everything else
+            return self.identity(op_input, input_shape)
 
     def add(self, values):
         return tf.keras.layers.Add(name=self.get_name('add'))(values)
 
     def concat(self, values, scope=''):
-        # return tf.keras.layers.Concatenate(axis=3, name=self.get_name('concat'))(values)
-        return tf.keras.layers.Add(name=self.get_name('fakeconcat'))(values) #TODO: change to concat?
+        if len(values) == 1:
+            return self.identity(values[0])
+        else:
+            return tf.keras.layers.Concatenate(axis=3, name=self.get_name('concat'))(values)
+        # return tf.keras.layers.Add(name=self.get_name('fakeconcat'))(values) #TODO: change to concat?
 
     def dense(self, layer_input, scope=''):
         return tf.keras.layers.Dense(10, name=self.get_name('dense'))(layer_input)
@@ -132,9 +172,23 @@ class Builder:
     def softmax(self, layer_input):
         return tf.keras.layers.Softmax(name=self.get_name('softmax'))(layer_input)
 
-    def identity(self, layer_input):
+    def identity(self, layer_input, output_size=1):
         # return tf.identity(layer_input, name=self.get_name('identity'))  # don't use- messes with scoping
+        # input_size = layer_input.shape[3]
+        # if output_size != 1 and input_size == 1:
+        #     return tf.keras.layers.Concatenate(axis=3, name=self.get_name('identity'))([layer_input for x in range(output_size)])
+        # elif input_size != 1 and input_size != output_size:
+        #     return self.dim_redux_conv(layer_input, output_size)
+        # else:
         return tf.keras.layers.Lambda(lambda x: x, name=self.get_name('identity'))(layer_input)
+
+    def dim_change(self, layer_input, output_size):
+        return tf.keras.layers.Conv2D(output_size, 1, 1, 'same', name=self.get_name('dim_redux_1x1'))(layer_input)
+
+    def downsize(self, layer_input):
+        return tf.keras.layers.Conv2D(1, 3, 2, 'same', name=self.get_name('downsize'))(layer_input)
+
+
 
 
 class SerialData(ABC):
@@ -147,9 +201,8 @@ class SerialData(ABC):
         pass
 
 
-class OperationType(IntEnum):
-    IDENTITY = 0,
-    CONV3x3 = 1,
+
+
 
 
 class OperationItem:
@@ -183,7 +236,10 @@ class Block:
         self.num_inputs = num_inputs
 
     def build_block(self, block_inputs, builder):
-        available_inputs = [builder.identity(x) for x in block_inputs]
+        base_input_shape = block_inputs[0].shape[-1]
+        available_inputs = [builder.identity(block_inputs[0])]
+        available_inputs.extend([builder.dim_change(x, base_input_shape) for x in block_inputs[1:]])
+        # available_inputs = [x for x in block_inputs]
         attachments = [False for x in range(len(self.groups) + len(block_inputs))]
         for group_num, group in enumerate(self.groups):
             with tf.name_scope(f'group_{group_num}'):
@@ -201,8 +257,8 @@ class Model:
         self.blocks: List[Block] = []  # [NORMAL_CELL, REDUCTION_CELL]
 
     def populate_with_NASnet_blocks(self):
-        groups_in_block = 8
-        ops_in_group = 3
+        groups_in_block = 5
+        ops_in_group = 2
         group_inputs = 2
 
         def get_block():
@@ -234,6 +290,9 @@ class Model:
                     previous_output = block_output
             with tf.name_scope(f'reduction_cell_{layer}'):
                 block_output = block_ops[1](block_input, builder)
+            with tf.name_scope(f'reduction_layer_{layer}'):
+                block_output = builder.downsize(block_output)
+                previous_output = builder.downsize(previous_output)
                 block_input = [block_output, previous_output]
                 previous_output = block_output
 
@@ -273,67 +332,9 @@ class Model:
 
         else:
             previous_op = select_item.operation_type
-            select_item.operation_type = int(np.random.random() * (OperationType.CONV3x3 + 1))
+            select_item.operation_type = int(np.random.random() * (OperationType.SEP_1X7_7X1 + 1))
             print(f'mutating operation type from {previous_op} to {select_item.operation_type}')
 
-
-class Candidate:
-    def __init__(self):
-        self.fitness = 0
-        self.age = 0
-
-    def evaluate_fitness(self) -> None:
-        pass
-
-    def duplicate(self) -> Candidate:
-        pass
-
-    def mutate(self) -> None:
-        pass
-        # for block in NUM_BLOCKS:
-        #     for
-
-
-class EvolutionStrategy(ABC):
-    @abstractmethod
-    def evolve_population(self, population: List[Candidate]) -> Tuple[List[Candidate], List[Candidate], List[Candidate]]:
-        """
-        Evolves a population
-        :param population: The population to evolve
-        :return: A tuple containing candidates that (carried over but weren't changed, were added, were removed)
-        """
-        pass
-
-
-class AgingStrategy(EvolutionStrategy):
-    def __init__(self, sample_size: int = 2):
-        super().__init__()
-        self.sample_size = sample_size
-
-    def evolve_population(self, population: List[Candidate]):
-        sampled_candidates = [population[x] for x in np.random.randint(0, len(population), size=self.sample_size)]
-        sampled_fitness = [x.fitness for x in sampled_candidates]
-        best_candidate = int(np.argmax(sampled_fitness))
-        new_candidate = sampled_candidates[best_candidate].duplicate()
-        new_candidate.mutate()
-        population.append(new_candidate)
-        return population[1:]
-
-
-def do_evolution():
-    rounds = 10
-    population_size = 10
-
-    evolution_strategy = AgingStrategy()
-    population = [Candidate() for _ in range(population_size)]
-    history = population
-    for r in range(rounds):
-        population, new_candidates, removed_candidates = evolution_strategy.evolve_population(population)
-        history.extend(new_candidates)
-
-    history_fitness = [x.fitness for x in history]
-    best_candidate = int(np.argmax(history_fitness))
-    return history[best_candidate]
 
 
 def do_test():
@@ -343,13 +344,10 @@ def do_test():
     for x in range(100):
         model_obj.mutate()
 
-
     # writer = tf.summary.create_file_writer('../res/')
     keras_graph = tfp.keras.backend.get_session().graph
 
     with keras_graph.as_default():
-
-
 
         model_input = tf.keras.Input(shape=[16, 16, 3])
         model_output = model_obj.build_graph(model_input)
@@ -357,7 +355,6 @@ def do_test():
 
         train_images = np.zeros([4, 16, 16, 3])
         train_labels = np.zeros([4, 10])
-
 
         model_name = 'evo_' + str(time.time())[4:-4]
         tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, model_name))
