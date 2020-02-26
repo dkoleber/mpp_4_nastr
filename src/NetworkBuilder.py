@@ -16,10 +16,8 @@ tensorboard_dir = os.path.join(HERE,'..\\tensorboard\\')
 tf.compat.v1.disable_eager_execution()
 '''
 TODO:
-- random selection of re-attachments with exclusions for existing attachments
 - initial layer resizing
 - activations
-- no final reduction layer at end
 
 
 '''
@@ -109,6 +107,16 @@ OP_DIMS = 8
 #         return tf.nn.softmax(layer_input)
 
 
+class SerialData(ABC):
+    @abstractmethod
+    def serialize(self) -> dict:
+        pass
+
+    @abstractmethod
+    def deserialize(self, obj:dict) -> None:
+        pass
+
+
 class OperationType(IntEnum):
     IDENTITY = 0,
     SEP_3X3 = 1,
@@ -123,6 +131,8 @@ class OperationType(IntEnum):
 class Builder:
     def __init__(self):
         self.count_names = {}
+        self.normalization_layer = None #tf.keras.layers.LayerNormalization(axis=3)
+        self.activation_function = tf.nn.relu
 
     def get_name(self, name):
         scope = tfp.keras.backend.get_session().graph.get_name_scope()
@@ -135,23 +145,25 @@ class Builder:
 
     def get_op(self, op_type: OperationType, op_input):
         input_shape = op_input.shape[-1]
+        layer = op_input
         if op_type == OperationType.SEP_3X3:
-            return tf.keras.layers.SeparableConv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'))(op_input)
+            layer = tf.keras.layers.SeparableConv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
         elif op_type == OperationType.SEP_5X5:
-            return tf.keras.layers.SeparableConv2D(input_shape, 5, 1, 'same', name=self.get_name('SEP_5X5'))(op_input)
+            layer = tf.keras.layers.SeparableConv2D(input_shape, 5, 1, 'same', name=self.get_name('SEP_5X5'), activation=self.activation_function)(layer)
         elif op_type == OperationType.SEP_7X7:
-            return tf.keras.layers.SeparableConv2D(input_shape, 7, 1, 'same', name=self.get_name('SEP_7X7'))(op_input)
+            layer = tf.keras.layers.SeparableConv2D(input_shape, 7, 1, 'same', name=self.get_name('SEP_7X7'), activation=self.activation_function)(layer)
         elif op_type == OperationType.AVG_3X3:
-            return tf.keras.layers.AveragePooling2D(3, 1, 'same', name=self.get_name('AVG_3X3'))(op_input)
+            layer = tf.keras.layers.AveragePooling2D(3, 1, 'same', name=self.get_name('AVG_3X3'))(layer)
         elif op_type == OperationType.MAX_3X3:
-            return tf.keras.layers.MaxPool2D(3, 1, 'same', name=self.get_name('MAX_3X3'))(op_input)
+            layer = tf.keras.layers.MaxPool2D(3, 1, 'same', name=self.get_name('MAX_3X3'))(layer)
         elif op_type == OperationType.DIL_3X3:
-            return tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('DIL_3X3'), dilation_rate=2)(op_input)
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('DIL_3X3'), dilation_rate=2, activation=self.activation_function)(layer)
         elif op_type == OperationType.SEP_1X7_7X1:
-            layer = tf.keras.layers.Conv2D(input_shape, (1, 7), 1, 'same', name=self.get_name('SEP_1X7'))(op_input)
-            return tf.keras.layers.Conv2D(input_shape, (7, 1), 1, 'same', name=self.get_name('SEP_7X1'))(layer)
+            layer = tf.keras.layers.Conv2D(input_shape, (1, 7), 1, 'same', name=self.get_name('SEP_1X7'), activation=self.activation_function)(layer)
+            layer = tf.keras.layers.Conv2D(input_shape, (7, 1), 1, 'same', name=self.get_name('SEP_7X1'), activation=self.activation_function)(layer)
         else: # OperationType.IDENTITY and everything else
-            return self.identity(op_input, input_shape)
+            layer = self.identity(layer, input_shape)
+        return self.post_op(layer)
 
     def add(self, values):
         return tf.keras.layers.Add(name=self.get_name('add'))(values)
@@ -164,7 +176,8 @@ class Builder:
         # return tf.keras.layers.Add(name=self.get_name('fakeconcat'))(values) #TODO: change to concat?
 
     def dense(self, layer_input, scope=''):
-        return tf.keras.layers.Dense(10, name=self.get_name('dense'))(layer_input)
+        layer = tf.keras.layers.Dense(10, name=self.get_name('dense'), activation=self.activation_function)(layer_input)
+        return self.post_op(layer)
 
     def flatten(self, layer_input, scope=''):
         return tf.keras.layers.Flatten(name=self.get_name('flatten'))(layer_input)
@@ -173,37 +186,21 @@ class Builder:
         return tf.keras.layers.Softmax(name=self.get_name('softmax'))(layer_input)
 
     def identity(self, layer_input, output_size=1):
-        # return tf.identity(layer_input, name=self.get_name('identity'))  # don't use- messes with scoping
-        # input_size = layer_input.shape[3]
-        # if output_size != 1 and input_size == 1:
-        #     return tf.keras.layers.Concatenate(axis=3, name=self.get_name('identity'))([layer_input for x in range(output_size)])
-        # elif input_size != 1 and input_size != output_size:
-        #     return self.dim_redux_conv(layer_input, output_size)
-        # else:
         return tf.keras.layers.Lambda(lambda x: x, name=self.get_name('identity'))(layer_input)
 
     def dim_change(self, layer_input, output_size):
-        return tf.keras.layers.Conv2D(output_size, 1, 1, 'same', name=self.get_name('dim_redux_1x1'))(layer_input)
+        layer = tf.keras.layers.Conv2D(output_size, 1, 1, 'same', name=self.get_name('dim_redux_1x1'), activation=self.activation_function)(layer_input)
+        return self.post_op(layer)
 
     def downsize(self, layer_input):
-        return tf.keras.layers.Conv2D(1, 3, 2, 'same', name=self.get_name('downsize'))(layer_input)
+        layer = tf.keras.layers.Conv2D(1, 3, 2, 'same', name=self.get_name('downsize'), activation=self.activation_function)(layer_input)
+        return self.post_op(layer)
 
-
-
-
-class SerialData(ABC):
-    @abstractmethod
-    def serialize(self) -> dict:
-        pass
-
-    @abstractmethod
-    def deserialize(self, obj:dict) -> None:
-        pass
-
-
-
-
-
+    def post_op(self, layer_input):
+        layer = layer_input
+        if self.normalization_layer is not None:
+            layer = self.normalization_layer(layer)
+        return layer
 
 class OperationItem:
     def __init__(self, attachment_index: int):
@@ -255,6 +252,7 @@ class Block:
 class Model:
     def __init__(self, ):
         self.blocks: List[Block] = []  # [NORMAL_CELL, REDUCTION_CELL]
+        self.accuracy = 0.
 
     def populate_with_NASnet_blocks(self):
         groups_in_block = 5
@@ -290,11 +288,13 @@ class Model:
                     previous_output = block_output
             with tf.name_scope(f'reduction_cell_{layer}'):
                 block_output = block_ops[1](block_input, builder)
-            with tf.name_scope(f'reduction_layer_{layer}'):
-                block_output = builder.downsize(block_output)
-                previous_output = builder.downsize(previous_output)
-                block_input = [block_output, previous_output]
-                previous_output = block_output
+            if layer != CELL_LAYERS - 1:
+                # don't add a reduction layer at the very end of the graph before the fully connected layer
+                with tf.name_scope(f'reduction_layer_{layer}'):
+                    block_output = builder.downsize(block_output)
+                    previous_output = builder.downsize(previous_output)
+                    block_input = [block_output, previous_output]
+                    previous_output = block_output
 
 
         with tf.name_scope(f'end_block'):
@@ -319,22 +319,26 @@ class Model:
         select_mutation = np.random.random()
         print(f'--mutating block {block_index}, group {group_index}, item {item_index}')
         if select_mutation < IDENTITY_THRESHOLD:
+            # identity mutation
             print('identity mutation')
-            return
         elif IDENTITY_THRESHOLD < select_mutation < other_mutation_threshold:
             # hidden state mutation = change inputs
             if group_index != 0:
                 previous_attachment = select_item.actual_attachment
-                select_item.actual_attachment = int(np.random.random() * select_item.attachment_index)
+                new_attachment = previous_attachment
+                # ensure that the mutation doesn't result in the same attachment as before
+                while new_attachment == previous_attachment:
+                    new_attachment = int(np.random.random() * select_item.attachment_index)
+                select_item.actual_attachment = new_attachment
                 print(f'mutating hidden state from {previous_attachment} to {select_item.actual_attachment}')
             else:
                 print(f'skipping state mutation for group 0')
 
         else:
+            # operation mutation
             previous_op = select_item.operation_type
             select_item.operation_type = int(np.random.random() * (OperationType.SEP_1X7_7X1 + 1))
             print(f'mutating operation type from {previous_op} to {select_item.operation_type}')
-
 
 
 def do_test():
@@ -356,6 +360,9 @@ def do_test():
         train_images = np.zeros([4, 16, 16, 3])
         train_labels = np.zeros([4, 10])
 
+        test_images = np.zeros([4, 16, 16, 3])
+        test_labels = np.zeros([4, 10])
+
         model_name = 'evo_' + str(time.time())[4:-4]
         tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, model_name))
 
@@ -364,6 +371,10 @@ def do_test():
         print(f'----{model_name}')
 
         model.fit(train_images, train_labels, batch_size=1, epochs=1, callbacks=[tensorboard_callback])
+
+        evaluated_metrics = model.evaluate(test_images, test_labels)
+        model_obj.accuracy = evaluated_metrics[-1]
+        print(evaluated_metrics)
 
 
 if __name__ == '__main__':
