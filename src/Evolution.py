@@ -1,23 +1,12 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Tuple
 import numpy as np
-
-class Candidate:
-    def __init__(self):
-        self.fitness = 0
-        self.age = 0
-
-    def evaluate_fitness(self) -> None:
-        pass
-
-    def duplicate(self) -> Candidate:
-        pass
-
-    def mutate(self) -> None:
-        pass
-        # for block in NUM_BLOCKS:
-        #     for
-
+from NetworkBuilder import Model
+from Dataset import Dataset
+from Candidate import Candidate
+import matplotlib.pyplot as plt
+import time
 
 class EvolutionStrategy(ABC):
     @abstractmethod
@@ -42,20 +31,59 @@ class AgingStrategy(EvolutionStrategy):
         new_candidate = sampled_candidates[best_candidate].duplicate()
         new_candidate.mutate()
         population.append(new_candidate)
-        return population[1:]
+        return population[1:], [new_candidate], [population[0]]
 
 
 def do_evolution():
-    rounds = 10
-    population_size = 10
+    rounds = 1
+    population_size = 1
+
+    dataset = Dataset.get_build_set()
 
     evolution_strategy = AgingStrategy()
-    population = [Candidate() for _ in range(population_size)]
+    population = [Model() for _ in range(population_size)]
+    for index, candidate in enumerate(population):
+        print(f'evaluating candidate {index} of initial population')
+        candidate.model_name = 'evo_' + str(time.time())
+        candidate.populate_with_NASnet_blocks()
+        candidate.evaluate_fitness(dataset)
+
     history = population
+
+    print(len(history))
     for r in range(rounds):
+        print(len(history))
+        print(f'performing evolution round {r}')
         population, new_candidates, removed_candidates = evolution_strategy.evolve_population(population)
+        print(len(history))
         history.extend(new_candidates)
+        print(len(new_candidates), len(history))
+        for candidate in new_candidates:
+            candidate.model_name = 'evo_' + str(time.time())
+            candidate.evaluate_fitness(dataset)
 
     history_fitness = [x.fitness for x in history]
     best_candidate = int(np.argmax(history_fitness))
-    return history[best_candidate]
+    return history, best_candidate
+
+def plot_history(history):
+    x = [x for x in range(len(history))]
+    y = [x.fitness for x in history]
+
+    print(x, y)
+
+    area = np.pi*5
+
+    plt.scatter(x, y, s=area, alpha=0.5)
+    plt.title('test_plot')
+    plt.xlabel('candidate')
+    plt.ylabel('fitness')
+    plt.show()
+
+def do_test():
+    history, best_candidate_index = do_evolution()
+    plot_history(history)
+
+
+if __name__ == '__main__':
+    do_test()
