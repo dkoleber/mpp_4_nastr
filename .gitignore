@@ -1,3 +1,5 @@
 .idea/
 res/
 tensorboard/
+src/__pycache__/
+models/

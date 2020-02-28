@@ -8,7 +8,7 @@ from enum import Enum, IntEnum
 import os
 import time
 import json
-from tensorflow.python.keras.saving import load_model
+from tensorflow.keras.models import load_model
 from Dataset import Dataset
 from Candidate import Candidate
 import copy
@@ -25,6 +25,10 @@ tf.compat.v1.disable_eager_execution()
 '''
 TODO:
 
+- no reduction cell at the end?
+
+- extra item is added into history?
+- implement cell age?
 - training routine
 - plotting population
 - selection routine
@@ -82,10 +86,10 @@ change operation / change input
 '''
 
 IDENTITY_THRESHOLD = .33
-NORMAL_CELL_N = 1
-CELL_LAYERS = 1
+NORMAL_CELL_N = 3
+CELL_LAYERS = 3
 
-INITIAL_LAYER_DIMS = 1
+INITIAL_LAYER_DIMS = 2
 USE_POST_BLOCK_REDUCE = True
 
 #

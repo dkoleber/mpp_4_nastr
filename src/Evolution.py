@@ -35,8 +35,8 @@ class AgingStrategy(EvolutionStrategy):
 
 
 def do_evolution():
-    rounds = 1
-    population_size = 1
+    rounds = 4
+    population_size = 4
 
     dataset = Dataset.get_build_set()
 
