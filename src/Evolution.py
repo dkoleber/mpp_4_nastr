@@ -7,6 +7,11 @@ from Dataset import Dataset
 from Candidate import Candidate
 import matplotlib.pyplot as plt
 import time
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+evo_dir = os.path.join(HERE, '..\\evolution\\')
 
 class EvolutionStrategy(ABC):
     @abstractmethod
@@ -35,8 +40,8 @@ class AgingStrategy(EvolutionStrategy):
 
 
 def do_evolution():
-    rounds = 20
-    population_size = 20
+    rounds = 10
+    population_size = 10
 
     # dataset = Dataset.get_build_set()
     dataset = Dataset.get_cifar10()
@@ -58,6 +63,14 @@ def do_evolution():
         for candidate in new_candidates:
             candidate.model_name = 'evo_' + str(time.time())
             candidate.evaluate_fitness(dataset)
+
+    dir_name = os.path.join(evo_dir, f'evo_round_{time.time()}')
+    if not os.path.exists(dir_name):
+        os.mkdir(dir_name)
+    for candidate in history:
+        candidate.save(dir_name)
+
+
 
     history_fitness = [x.fitness for x in history]
     best_candidate_index = int(np.argmax(history_fitness))

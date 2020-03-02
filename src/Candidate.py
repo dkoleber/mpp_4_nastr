@@ -21,5 +21,5 @@ class Candidate(ABC):
         pass
 
     @abstractmethod
-    def save(self) -> None:
+    def save(self, dir:str) -> None:
         pass

@@ -41,9 +41,9 @@ class Dataset:
     @staticmethod
     def get_build_set() -> Dataset:
         train_images = np.zeros([4, 16, 16, 3])
-        train_labels = np.zeros([4, 10])
+        train_labels = np.zeros([4, 1])
 
         test_images = np.zeros([4, 16, 16, 3])
-        test_labels = np.zeros([4, 10])
+        test_labels = np.zeros([4, 1])
 
         return Dataset(train_images, train_labels, test_images, test_labels)

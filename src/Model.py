@@ -539,8 +539,8 @@ class Model(SerialData, Candidate):
         #     self.keras_model = None
         pass
 
-    def save(self):
-        dir_name = os.path.join(model_save_dir, self.model_name)
+    def save(self, dir:str=model_save_dir):
+        dir_name = os.path.join(dir, self.model_name)
         os.mkdir(dir_name)
         _write_model_structure_to_json(self, dir_name, self.model_name)
         if self.keras_model is not None:
