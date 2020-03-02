@@ -25,14 +25,11 @@ tf.compat.v1.disable_eager_execution()
 '''
 TODO:
 
-- no reduction cell at the end?
-
-- extra item is added into history?
-- implement cell age?
+- eager model surgery
 - training routine
-- plotting population
-- selection routine
 
+- selection routine
+- soft vs hard curve for accuracy / time tradeoff
 
 - should block output be dim reduced after concat?
 '''
@@ -85,42 +82,15 @@ change operation / change input
 
 '''
 
+
 IDENTITY_THRESHOLD = .33
-NORMAL_CELL_N = 3
+NORMAL_CELL_N = 5
 CELL_LAYERS = 3
 
-INITIAL_LAYER_DIMS = 2
+INITIAL_LAYER_DIMS = 16
 USE_POST_BLOCK_REDUCE = True
 
-#
-# class Builder:
-#     @staticmethod
-#     def get_op(op_type: OperationType, op_input):
-#         if op_type == OperationType.IDENTITY:
-#             return tf.identity(op_input)
-#         elif op_type == OperationType.CONV3x3:
-#             return tf.compat.v1.layers.conv2d(op_input, 8, 1, 1, 'same')
-#
-#     @staticmethod
-#     def add(values):
-#         return tf.add_n(values)
-#
-#     @staticmethod
-#     def concat(values):
-#         return tf.concat(values, axis=3)
-#
-#     @staticmethod
-#     def dense(layer_input):
-#         return tf.compat.v1.layers.dense(layer_input, 10)
-#
-#     @staticmethod
-#     def flatten(layer_input):
-#         return tf.compat.v1.layers.flatten(layer_input)
-#
-#     @staticmethod
-#     def softmax(layer_input):
-#         return tf.nn.softmax(layer_input)
-
+tf.compat.v1.disable_eager_execution()
 
 class SerialData(ABC):
     @abstractmethod
@@ -146,7 +116,7 @@ class OperationType(IntEnum):
 class Builder:
     def __init__(self):
         self.count_names = {}
-        self.normalization_layer = None #self.layer_norm
+        self.normalization_layer = None #self.batch_norm
         self.activation_function = tf.nn.relu
 
     def get_name(self, name):
@@ -180,17 +150,38 @@ class Builder:
             layer = self.dim_change(layer, input_shape)
         return self.post_op(layer)
 
+    def _get_op(self, op_type: OperationType, op_input):
+        input_shape = op_input.shape[-1]
+        layer = op_input
+        if op_type == OperationType.SEP_3X3:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        elif op_type == OperationType.SEP_5X5:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        elif op_type == OperationType.SEP_7X7:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        elif op_type == OperationType.AVG_3X3:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        elif op_type == OperationType.MAX_3X3:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        elif op_type == OperationType.DIL_3X3:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        elif op_type == OperationType.SEP_1X7_7X1:
+            layer = tf.keras.layers.Conv2D(input_shape, 3, 1, 'same', name=self.get_name('SEP_3X3'), activation=self.activation_function)(layer)
+        else: # OperationType.IDENTITY and everything else
+            layer = self.dim_change(layer, input_shape)
+        return self.post_op(layer)
+
     def add(self, values):
         return tf.keras.layers.Add(name=self.get_name('add'))(values)
 
-    def concat(self, values, scope=''):
+    def concat(self, values):
         if len(values) == 1:
             return self.identity(values[0])
         else:
             return tf.keras.layers.Concatenate(axis=3, name=self.get_name('concat'))(values)
 
-    def dense(self, layer_input, scope=''):
-        layer = tf.keras.layers.Dense(10, name=self.get_name('dense'), activation=self.activation_function)(layer_input)
+    def dense(self, layer_input, size = 10, activation = None):
+        layer = tf.keras.layers.Dense(size, name=self.get_name('dense'), activation=activation)(layer_input)
         return layer
 
     def flatten(self, layer_input, scope=''):
@@ -210,7 +201,8 @@ class Builder:
             return self.post_op(layer)
 
     def downsize(self, layer_input):
-        layer = tf.keras.layers.Conv2D(1, 3, 2, 'same', name=self.get_name('downsize'), activation=self.activation_function)(layer_input)
+        input_size = layer_input.shape[-1]
+        layer = tf.keras.layers.Conv2D(input_size, 3, 2, 'same', name=self.get_name('downsize'), activation=self.activation_function)(layer_input)
         return self.post_op(layer)
 
     def batch_norm(self, layer_input):
@@ -314,7 +306,6 @@ class Model(SerialData, Candidate):
     def __init__(self, identity_threshold: float = IDENTITY_THRESHOLD, normal_cell_n: int = NORMAL_CELL_N, cell_layers: int = CELL_LAYERS, initial_layer_dims: int = INITIAL_LAYER_DIMS, use_post_block_reduce: bool = USE_POST_BLOCK_REDUCE):
         super().__init__()
         self.blocks: List[Block] = []  # [NORMAL_CELL, REDUCTION_CELL]
-        self.accuracy = 0.
         self.identity_threshold = identity_threshold
         self.normal_cell_n = normal_cell_n
         self.cell_layers = cell_layers
@@ -322,6 +313,14 @@ class Model(SerialData, Candidate):
         self.use_post_block_reduce = use_post_block_reduce
         self.keras_model = None
         self.model_name = 'evo_' + str(time.time())#str(time.time()).split('.')[0][4:]
+        self.accuracy = 0.
+        self.metrics = {
+            'accuracy': 0.,
+            'average_train_time': 0.,
+            'average_inference_time': 0.,
+            'compile_time': 0.,
+            'build_time': 0.
+        }
 
     def populate_with_NASnet_blocks(self, random_attachment: bool = False, random_op: bool = False):
         groups_in_block = 5
@@ -389,8 +388,8 @@ class Model(SerialData, Candidate):
         with tf.name_scope(f'end_block'):
             output = builder.concat(block_input)
             output = builder.flatten(output)
-            output = builder.dense(output)
-            output = builder.softmax(output)
+            output = builder.dense(output, size = 64, activation=tf.nn.relu)
+            output = builder.dense(output, size = 10)
 
         return output
 
@@ -433,7 +432,7 @@ class Model(SerialData, Candidate):
         return {
             'blocks': [x.serialize() for x in self.blocks],
             'metrics': {
-                'accuracy': float(self.accuracy)
+                'accuracy': float(self.metrics['accuracy'])
             },
             'hyperparameters':
             {
@@ -450,7 +449,7 @@ class Model(SerialData, Candidate):
             item = Block()
             item.deserialize(block)
             self.blocks.append(item)
-        self.accuracy = obj['metrics']['accuracy']
+        self.metrics['accuracy'] = obj['metrics']['accuracy']
         self.identity_threshold = obj['hyperparameters']['identity_threshold']
         self.normal_cell_n = obj['hyperparameters']['normal_cell_n']
         self.cell_layers = obj['hyperparameters']['cell_layers']
@@ -458,24 +457,87 @@ class Model(SerialData, Candidate):
         self.use_post_block_reduce = obj['hyperparameters']['use_post_block_reduce']
 
     def evaluate_fitness(self, dataset: Dataset) -> None:
-        keras_graph = tfp.keras.backend.get_session().graph
+        self._evaluate_fitness_graph(dataset)
+
+    def _evaluate_fitness_graph(self, dataset: Dataset) -> None:
+        TRAIN_EPOCHS = 2
+        TRAIN_STEPS = 1
+        BATCH_SIZE = 32
+
+        # keras_graph = tfp.keras.backend.get_session().graph
+        keras_graph = tf.Graph()
 
         with keras_graph.as_default():
+            build_time = time.time()
+            print(dataset.images_shape)
             model_input = tf.keras.Input(shape=dataset.images_shape)
             model_output = self.build_graph(model_input)
+
+            # layer = model_input
+            #
+            # layer = tf.keras.layers.Conv2D(32, 3, 1, 'same', activation='relu')(layer)
+            # layer = tf.keras.layers.MaxPool2D((2,2))(layer)
+            # layer = tf.keras.layers.Conv2D(64, 3, 1, 'same', activation='relu')(layer)
+            # layer = tf.keras.layers.MaxPool2D((2, 2))(layer)
+            # layer = tf.keras.layers.Conv2D(64, 3, 1, 'same', activation='relu')(layer)
+            # # layer = tf.keras.layers.BatchNormalization()(layer)
+            # layer = tf.keras.layers.Flatten()(layer)
+            # layer = tf.keras.layers.Dense(64, activation='relu')(layer)
+            # # layer = tf.keras.layers.Dense(10, activation=tf.nn.softmax)(layer)
+            # layer = tf.keras.layers.Dense(10)(layer)
+            #
+            # model_output = layer
+
             self.keras_model = tf.keras.Model(inputs=model_input, outputs=model_output)
+
+
+            build_time = time.time() - build_time
 
             tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, self.model_name))
 
-            self.keras_model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+            compile_time = time.time()
 
-            self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=1, epochs=1, steps_per_epoch=10, callbacks=[tensorboard_callback])
+            optimizer = tf.keras.optimizers.Adam(0.001)
+            self.keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+            compile_time = time.time() - compile_time
 
+            train_time = time.time()
+            self.keras_model.fit(dataset.train_images, dataset.train_labels, epochs=TRAIN_EPOCHS, callbacks=[tensorboard_callback])
+            train_time = time.time() - train_time
+
+            interence_time = time.time()
             evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
-            self.accuracy = evaluated_metrics[-1]
-            self.fitness = self.accuracy
-            self.save()
+            inference_time = time.time() - interence_time
+
+            self.metrics['accuracy'] = evaluated_metrics[-1]
+            self.metrics['build_time'] = build_time
+            self.metrics['compile_time'] = compile_time
+            self.metrics['average_train_time'] = train_time / float(BATCH_SIZE * TRAIN_STEPS * TRAIN_EPOCHS)
+            self.metrics['average_inference_time'] = inference_time / float(len(dataset.test_images))
+            self.fitness = self.metrics['accuracy']
+            # self.save()
             self.keras_model = None
+
+    def _evaluate_fitness_eager(self, dataset: Dataset) -> None:
+        # keras_graph = tfp.keras.backend.get_session().graph
+        #
+        # with keras_graph.as_default():
+        #     model_input = tf.keras.Input(shape=dataset.images_shape)
+        #     model_output = self.build_graph(model_input)
+        #     self.keras_model = tf.keras.Model(inputs=model_input, outputs=model_output)
+        #
+        #     tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, self.model_name))
+        #
+        #     self.keras_model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+        #
+        #     self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=1, epochs=1, steps_per_epoch=10, callbacks=[tensorboard_callback])
+        #
+        #     evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
+        #     self.accuracy = evaluated_metrics[-1]
+        #     self.fitness = self.accuracy
+        #     # self.save()
+        #     self.keras_model = None
+        pass
 
     def save(self):
         dir_name = os.path.join(model_save_dir, self.model_name)
