@@ -1,9 +1,11 @@
 from SerialData import SerialData
 
 
+
 class Hyperparameters(SerialData):
-    def __init__(self):
+    def __init__(self, debug_mode: bool = False):
         super().__init__()
+
         self.parameters = {
             'IDENTITY_THRESHOLD': .33,
             'NORMAL_CELL_N': 5,
@@ -13,23 +15,24 @@ class Hyperparameters(SerialData):
             'TRAIN_EPOCHS': 2,
             'LEARNING_RATE': 0.001,
             'STRATEGY': 'aging',
-            'ROUNDS': 32,
-            'POPULATION_SIZE': 32,
-			'STRATEGY_SELECTION_SIZE': 8,
+            'ROUNDS': 16,
+            'POPULATION_SIZE': 16,
+            'STRATEGY_SELECTION_SIZE': 8,
         }
-        #self.parameters = {
-        #    'IDENTITY_THRESHOLD': .33,
-        #    'NORMAL_CELL_N': 1,
-        #    'CELL_LAYERS': 1,
-        #    'INITIAL_LAYER_DIMS': 1,
-        #    'USE_POST_BLOCK_REDUCE': True,
-        #    'TRAIN_EPOCHS': 1,
-        #    'LEARNING_RATE': 0.001,
-        #    'STRATEGY': 'aging',
-        #    'ROUNDS': 1,
-        #    'POPULATION_SIZE': 2,
-        #    'STRATEGY_SELECTION_SIZE': 2,
-        #}
+        if debug_mode:
+            self.parameters = {
+                'IDENTITY_THRESHOLD': .33,
+                'NORMAL_CELL_N': 1,
+                'CELL_LAYERS': 1,
+                'INITIAL_LAYER_DIMS': 1,
+                'USE_POST_BLOCK_REDUCE': True,
+                'TRAIN_EPOCHS': 1,
+                'LEARNING_RATE': 0.001,
+                'STRATEGY': 'aging',
+                'ROUNDS': 1,
+                'POPULATION_SIZE': 2,
+                'STRATEGY_SELECTION_SIZE': 2,
+            }
 
     def serialize(self) -> dict:
         return self.parameters

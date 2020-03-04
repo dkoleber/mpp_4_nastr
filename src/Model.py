@@ -9,6 +9,7 @@ from tensorflow.keras.models import load_model
 from Dataset import Dataset
 import copy
 from FileManagement import *
+from Metrics import Metrics
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
@@ -18,14 +19,27 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 '''
 TODO:
 
-- eager model surgery
-- training routine
+=HIGH PRIORITY=
+- soft vs hard fitness curve for accuracy / time tradeoff
+- config determines fitness calculator
+
+
+=MEDIUM PRIORITY=
+- add researched selection routine
 - non-overlap selection for aging selection
+- increasing epochs over time?
 
-- selection routine
-- soft vs hard curve for accuracy / time tradeoff
+=LOW PRIORITY=
+- eager model surgery ?
 
+=FOR CONSIDERATION=
 - should block output be dim reduced after concat?
+
+=EXPERIMENTS=
+coorelation between training accuracy vs late training accuracy
+coorelation between FLOPS vs size vs time
+coorelation betweeen accuracy of low filter numbers vs high
+
 '''
 
 '''
@@ -39,41 +53,6 @@ TODO:
 
 2. Tournament Selection
     select two individuals, kill the less fit one, and the more fit one has a child
-    
-3. Tournament with combination
-    select 4 individuals, kill the least fit two, and the remaining two each have a child
-    the children have some random replacement beteween eachother, and then are mtuated
-
----
-
-initialization types:
-full passthrough
-random
-
-
----
-
-search space
-
-- number of blocks 
-+ number of groups within blocks
-+ number of items within groups
-+ operation used by items (identity, 
-+ initialization type of variables in operation (zeros, identity aka parent, random, xavier, etc) 
-
-
-
-
-hyperconfigurations:
-initialization scheme (full passthrough vs random)
-initialization type (parent/zeros/random)
-
-
-mutations:
-add/remove group
-add/remove item
-change operation / change input 
-
 '''
 
 
@@ -266,13 +245,7 @@ class Model(SerialData):
         self.hyperparameters = hyperparameters
         self.keras_model = None
         self.model_name = 'evo_' + str(time.time())  # str(time.time()).split('.')[0][4:]
-        self.metrics = {
-            'accuracy': 0.,
-            'average_train_time': 0.,
-            'average_inference_time': 0.,
-            'compile_time': 0.,
-            'build_time': 0.
-        }
+        self.metrics = Metrics()
         self.fitness = 0.
 
     def populate_with_nasnet_blocks(self):
@@ -381,13 +354,7 @@ class Model(SerialData):
     def serialize(self) -> dict:
         return {
             'blocks': [x.serialize() for x in self.blocks],
-            'metrics': {
-                'accuracy': float(self.metrics['accuracy']),
-                'average_train_time': float(self.metrics['average_train_time']),
-                'average_inference_time': float(self.metrics['average_inference_time']),
-                'compile_time': float(self.metrics['compile_time']),
-                'build_time': float(self.metrics['build_time']),
-            },
+            'metrics': self.metrics.serialize(),
             'hyperparameters': self.hyperparameters.serialize()
         }
 
@@ -397,36 +364,31 @@ class Model(SerialData):
             item.deserialize(block)
             self.blocks.append(item)
 
-        self.metrics['accuracy'] = obj['metrics']['accuracy']
-        self.metrics['average_train_time'] = obj['metrics']['average_train_time']
-        self.metrics['average_inference_time'] = obj['metrics']['average_inference_time']
-        self.metrics['compile_time'] = obj['metrics']['compile_time']
-        self.metrics['build_time'] = obj['metrics']['build_time']
-        self.fitness = self.metrics['accuracy']
+        self.metrics = Metrics()
+        self.metrics.deserialize(obj['metrics'])
+
         self.hyperparameters = Hyperparameters()
         self.hyperparameters.deserialize(obj['hyperparameters'])
 
-    def evaluate_fitness(self, dataset: Dataset) -> None:
-        self._evaluate_fitness_graph(dataset)
-
-    def _evaluate_fitness_graph(self, dataset: Dataset) -> None:
+    def evaluate(self, dataset: Dataset) -> None:
         # keras_graph = tfp.keras.backend.get_session().graph
         keras_graph = tf.Graph()
 
         with keras_graph.as_default():
-            build_time = time.time()
 
-            model_input = tf.keras.Input(shape=dataset.images_shape)
-            model_output = self.build_graph(model_input)
-            self.keras_model = tf.keras.Model(inputs=model_input, outputs=model_output)
-            build_time = time.time() - build_time
+            if self.keras_model is None:
+                build_time = time.time()
+                model_input = tf.keras.Input(shape=dataset.images_shape)
+                model_output = self.build_graph(model_input)
+                self.keras_model = tf.keras.Model(inputs=model_input, outputs=model_output)
+                build_time = time.time() - build_time
 
-            tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, self.model_name))
+                tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, self.model_name))
 
-            compile_time = time.time()
-            optimizer = tf.keras.optimizers.Adam(self.hyperparameters.parameters['LEARNING_RATE'])
-            self.keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
-            compile_time = time.time() - compile_time
+                compile_time = time.time()
+                optimizer = tf.keras.optimizers.Adam(self.hyperparameters.parameters['LEARNING_RATE'])
+                self.keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+                compile_time = time.time() - compile_time
 
             train_time = time.time()
             self.keras_model.fit(dataset.train_images, dataset.train_labels, epochs=self.hyperparameters.parameters['TRAIN_EPOCHS'], callbacks=[tensorboard_callback])
@@ -436,56 +398,30 @@ class Model(SerialData):
             evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
             inference_time = time.time() - interence_time
 
-            self.metrics['accuracy'] = evaluated_metrics[-1]
-            self.metrics['build_time'] = build_time
-            self.metrics['compile_time'] = compile_time
-            self.metrics['average_train_time'] = train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels))
-            self.metrics['average_inference_time'] = inference_time / float(len(dataset.test_images))
-            self.fitness = self.metrics['accuracy']
+            self.metrics.metrics['accuracy'] = float(evaluated_metrics[-1])
+            self.metrics.metrics['build_time'] = build_time
+            self.metrics.metrics['compile_time'] = compile_time
+            self.metrics.metrics['average_train_time'] = train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels))
+            self.metrics.metrics['average_inference_time'] = inference_time / float(len(dataset.test_images))
 
-            self.keras_model = None
-            # self.save()
-
-    def _evaluate_fitness_eager(self, dataset: Dataset) -> None:
-        # keras_graph = tfp.keras.backend.get_session().graph
-        #
-        # with keras_graph.as_default():
-        #     model_input = tf.keras.Input(shape=dataset.images_shape)
-        #     model_output = self.build_graph(model_input)
-        #     self.keras_model = tf.keras.Model(inputs=model_input, outputs=model_output)
-        #
-        #     tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, self.model_name))
-        #
-        #     self.keras_model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
-        #
-        #     self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=1, epochs=1, steps_per_epoch=10, callbacks=[tensorboard_callback])
-        #
-        #     evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
-        #     self.accuracy = evaluated_metrics[-1]
-        #     self.fitness = self.accuracy
-        #     # self.save()
-        #     self.keras_model = None
-        pass
-
-    def save(self, dir_path: str = model_save_dir):
+    def save_metadata(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
         os.mkdir(dir_name)
         _write_model_structure_to_json(self, dir_name, self.model_name)
+
+    def save_graph(self, dir_path: str = model_save_dir):
+        dir_name = os.path.join(dir_path, self.model_name)
         if self.keras_model is not None:
             _save_keras_model(self.keras_model, dir_name, self.model_name)
+
+    def clear_graph(self):
+        self.keras_model = None
 
     def duplicate(self) -> Model:
         return copy.deepcopy(self)
 
-    @staticmethod
-    def load(dir_path: str, name: str) -> Model:
-        dir_name = os.path.join(dir_path, name)
-        if not os.path.exists(dir_name):
-            print('Model does not exist at specified location')
-            return Model()
-
-        result = _load_model_structure_from_json(dir_name, name)
-        result.model_name = name
+    def load_graph(self, dir_path: str = model_save_dir) -> bool:
+        dir_name = os.path.join(dir_path, self.model_name)
 
         contained_files = os.listdir(dir_name)
         contains_keras_model = False
@@ -495,7 +431,22 @@ class Model(SerialData):
                 contains_keras_model = True
 
         if contains_keras_model:
-            result.keras_model = _load_keras_model(dir_name, name)
+            self.keras_model = _load_keras_model(dir_name, self.model_name)
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def load(dir_path: str, name: str, load_graph: bool = False) -> Model:
+        dir_name = os.path.join(dir_path, name)
+        if not os.path.exists(dir_name):
+            print('Model does not exist at specified location')
+            return Model()
+
+        result = _load_model_structure_from_json(dir_name, name)
+        result.model_name = name
+
+        result.load_graph(dir_path)
 
         return result
 
@@ -528,8 +479,8 @@ def _load_keras_model(dir_path: str, name: str):
     return model
 
 
-def _save_keras_model(model, dir_path: str, model_name: str):
-    model.save(os.path.join(dir_path, model_name + '.h5'))
+def _save_keras_model(keras_model, dir_path: str, model_name: str):
+    keras_model.save(os.path.join(dir_path, model_name + '.h5'))
 
 
 if __name__ == '__main__':

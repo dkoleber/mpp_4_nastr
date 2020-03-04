@@ -1,8 +1,8 @@
 from __future__ import annotations
 import sys
-from abc import ABC, abstractmethod
-from typing import List, Tuple
 import numpy as np
+from EvolutionStrategy import AgingStrategy
+from FitnessCalculator import AccuracyCalculator
 from Model import Model
 from Dataset import Dataset
 import matplotlib.pyplot as plt
@@ -12,6 +12,8 @@ from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+DEBUG = True
 
 
 class EvolutionProgress(SerialData):
@@ -28,37 +30,11 @@ class EvolutionProgress(SerialData):
         self.parameters = obj
 
 
-class EvolutionStrategy(ABC):
-    @abstractmethod
-    def evolve_population(self, population: List[Model]) -> Tuple[List[Model], List[Model], List[Model]]:
-        """
-        Evolves a population
-        :param population: The population to evolve
-        :return: A tuple containing candidates that (carried over but weren't changed, were added, were removed)
-        """
-        pass
-
-
-class AgingStrategy(EvolutionStrategy):
-    def __init__(self, sample_size: int = 2):
-        super().__init__()
-        self.sample_size = sample_size
-
-    def evolve_population(self, population: List[Model]):
-        sampled_candidates = [population[x] for x in np.random.randint(0, len(population), size=self.sample_size)]  # TODO: non-overlapping
-        sampled_fitness = [x.fitness for x in sampled_candidates]
-        best_candidate_index = int(np.argmax(sampled_fitness))
-        new_candidate = sampled_candidates[best_candidate_index].duplicate()
-        new_candidate.mutate()
-        population.append(new_candidate)
-        return population[1:], [new_candidate], [population[0]]
-
-
 def do_evolution(dir_path: str, num_rounds: int):
     config_path_name = 'config'
     progress_path_name = 'progress'
 
-    params = Hyperparameters()
+    params = Hyperparameters(DEBUG)
     progress = EvolutionProgress()
 
     config_path = os.path.join(dir_path, f'{config_path_name}.json')
@@ -109,8 +85,13 @@ def do_evolution(dir_path: str, num_rounds: int):
     print(f'Evaluating {evolution_rounds_to_conduct} evolution rounds ({evolution_rounds_remaining} of {evolution_rounds_target} remain)')
     print()
 
-    # dataset = Dataset.get_build_set()
-    dataset = Dataset.get_cifar10()
+    dataset = None
+    if DEBUG:
+        dataset = Dataset.get_build_set()
+    else:
+        dataset = Dataset.get_cifar10()
+
+    fitness_calculator = AccuracyCalculator()
 
     evolution_strategy = AgingStrategy(params.parameters['STRATEGY_SELECTION_SIZE'])
     if params.parameters['STRATEGY'] == 'aging':
@@ -118,8 +99,11 @@ def do_evolution(dir_path: str, num_rounds: int):
 
     def handle_new_candidate(new_candidate):
         new_candidate.model_name = 'evo_' + str(time.time())
-        new_candidate.evaluate_fitness(dataset)
-        new_candidate.save(dir_path)
+        new_candidate.evaluate(dataset)
+        new_candidate.save_metadata(dir_path)
+        new_candidate.save_graph(dir_path)
+        new_candidate.clear_graph()
+        new_candidate.fitness = fitness_calculator.calculate_fitness(new_candidate.metrics)
         history.append(new_candidate)
 
     def write_progress():
