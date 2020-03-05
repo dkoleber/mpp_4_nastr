@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from Model import Model
 import numpy as np
+
+from Modelv2 import MetaModel
 
 
 class EvolutionStrategy(ABC):
     @abstractmethod
-    def evolve_population(self, population: List[Model]) -> Tuple[List[Model], List[Model], List[Model]]:
+    def evolve_population(self, population: List[MetaModel]) -> Tuple[List[MetaModel], List[MetaModel], List[MetaModel]]:
         """
         Evolves a population
         :param population: The population to evolve
@@ -20,7 +21,7 @@ class AgingStrategy(EvolutionStrategy):
         super().__init__()
         self.sample_size = sample_size
 
-    def evolve_population(self, population: List[Model]):
+    def evolve_population(self, population: List[MetaModel]):
         sampled_candidates = [population[x] for x in np.random.randint(0, len(population), size=self.sample_size)]  # TODO: non-overlapping
         sampled_fitness = [x.fitness for x in sampled_candidates]
         best_candidate_index = int(np.argmax(sampled_fitness))

@@ -3,17 +3,17 @@ import sys
 import numpy as np
 from EvolutionStrategy import AgingStrategy
 from FitnessCalculator import AccuracyCalculator
-from Model import Model
 from Dataset import Dataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
+from Modelv2 import MetaModel
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-DEBUG = True
+DEBUG = False
 
 
 class EvolutionProgress(SerialData):
@@ -40,6 +40,8 @@ def do_evolution(dir_path: str, num_rounds: int):
     config_path = os.path.join(dir_path, f'{config_path_name}.json')
     progress_path = os.path.join(dir_path, f'{progress_path_name}.json')
 
+    # == DESERIALIZE CONFIG AND PROGRESS ==
+
     if os.path.exists(dir_path):
         if os.path.exists(config_path):
             serialized_params = read_json_from_file(dir_path, config_path_name)
@@ -56,16 +58,20 @@ def do_evolution(dir_path: str, num_rounds: int):
         serialied_progress = progress.serialize()
         write_json_to_file(serialied_progress, dir_path, progress_path_name)
 
+    # == LOAD ANY PREVIOUS MODELS ==
+
     history_names = [x for x in os.listdir(dir_path) if '.json' not in x]
     history = []
     population = []
     for name in history_names:
-        model = Model.load(dir_path, name)
+        model = MetaModel.load(dir_path, name)
         if model.hyperparameters == params:
             if name in progress.parameters['history_names']:
                 history.append(model)
             if name in progress.parameters['population_names']:
                 population.append(model)
+
+    # == CALCULATE THE NUMBER OF ROUND OF INITIALIZATION AND/OR EVOLUTION ==
 
     actual_num_rounds = num_rounds
     if actual_num_rounds < 0:
@@ -79,11 +85,12 @@ def do_evolution(dir_path: str, num_rounds: int):
     evolution_rounds_target = params.parameters['ROUNDS']
     evolution_rounds_remaining = evolution_rounds_target - (len(history) - len(population))
     evolution_rounds_to_conduct = min(evolution_rounds_remaining, rounds_remaining_after_population)
-
     print()
     print(f'Evaluating {init_population_to_conduct} of initial population ({init_population_remaining} of {init_population_target} remain)')
     print(f'Evaluating {evolution_rounds_to_conduct} evolution rounds ({evolution_rounds_remaining} of {evolution_rounds_target} remain)')
     print()
+
+
 
     dataset = None
     if DEBUG:
@@ -115,10 +122,10 @@ def do_evolution(dir_path: str, num_rounds: int):
         write_serialized_progress = progress.serialize()
         write_json_to_file(write_serialized_progress, dir_path, progress_path_name)
 
-    new_population = [Model() for _ in range(init_population_to_conduct)]
+    new_population = [MetaModel() for _ in range(init_population_to_conduct)]
     for index, candidate in enumerate(new_population):
         print(f'Evaluating candidate {index} of initial population')
-        candidate.populate_with_nasnet_blocks()
+        candidate.populate_with_nasnet_metacells()
         handle_new_candidate(candidate)
         population.append(candidate)
         write_progress()

@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
 import numpy as np
 import tensorflow.python as tfp
 import tensorflow as tf
@@ -10,6 +13,7 @@ from Dataset import Dataset
 import copy
 from FileManagement import *
 from Metrics import Metrics
+from OperationType import OperationType
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
@@ -72,7 +76,7 @@ cosine annealing
 '''
 
 
-tf.compat.v1.disable_eager_execution()
+# tf.compat.v1.disable_eager_execution()
 
 
 class Builder:
@@ -159,14 +163,11 @@ class Builder:
         return layer
 
 
-class OperationItem(SerialData):
+class MetaOperation(SerialData):
     def __init__(self, attachment_index: int = 0):
         self.operation_type: OperationType = OperationType.IDENTITY
         self.attachment_index: int = attachment_index
         self.actual_attachment: int = 0
-
-    def build_operation(self, operation_input, builder: Builder):
-        return builder.get_op(self.operation_type, operation_input)
 
     def serialize(self) -> dict:
         return {
@@ -181,94 +182,65 @@ class OperationItem(SerialData):
         self.actual_attachment = obj['actual_attachment']
 
 
-class Group(SerialData):
+class MetaGroup(SerialData):
     def __init__(self):
-        self.operations: List[OperationItem] = []
-
-    def build_group(self, available_inputs, builder: Builder):
-        outputs = []
-        attachments = []
-        for operation in self.operations:
-            built_op = operation.build_operation(available_inputs[operation.actual_attachment], builder)
-            outputs.append(built_op)
-            attachments.append(operation.actual_attachment)
-        addition = builder.add(outputs)
-        return addition, attachments
+        self.operations: List[MetaOperation] = []
 
     def serialize(self) -> dict:
         return {'operations': [x.serialize() for x in self.operations]}
 
     def deserialize(self, obj: dict) -> None:
         for op in obj['operations']:
-            item = OperationItem()
+            item = MetaOperation()
             item.deserialize(op)
             self.operations.append(item)
 
 
-class Block(SerialData):
+class MetaCell(SerialData):
     def __init__(self, num_inputs: int = 0):
-        self.groups: List[Group] = []
-        self.num_inputs = num_inputs
-
-    def build_block(self, block_inputs, builder, post_reduce: bool = False):
-        base_input_shape = block_inputs[0].shape[-1]
-        available_inputs = [builder.identity(block_inputs[0])]
-        available_inputs.extend([builder.dim_change(x, base_input_shape) for x in block_inputs[1:]])
-        # available_inputs = [x for x in block_inputs]
-        attachments = [False for _ in range(len(self.groups) + len(block_inputs))]
-        for group_num, group in enumerate(self.groups):
-            with tf.name_scope(f'group_{group_num}'):
-                group_output, group_attachments = group.build_group(available_inputs, builder)
-                available_inputs.append(group_output)
-                for attachment in group_attachments:
-                    attachments[attachment] = True
-                # attachments[group.index + len(block_inputs)] = False  # this is implicit since it starts as false
-        unattached = [available_inputs[x] for x in range(len(attachments)) if not attachments[x]]
-        concated = builder.concat(unattached)
-        if post_reduce:
-            concated = builder.dim_change(concated, base_input_shape)
-        return concated
+        self.groups: List[MetaGroup] = []
 
     def serialize(self) -> dict:
         return {
             'groups': [x.serialize() for x in self.groups],
-            'num_inputs': self.num_inputs
         }
 
     def deserialize(self, obj: dict) -> None:
         for group in obj['groups']:
-            item = Group()
+            item = MetaGroup()
             item.deserialize(group)
             self.groups.append(item)
-        self.num_inputs = obj['num_inputs']
 
 
-class Model(SerialData):
+class MetaModel(SerialData):
     def __init__(self, hyperparameters: Hyperparameters = Hyperparameters()):
         super().__init__()
-        self.blocks: List[Block] = []  # [NORMAL_CELL, REDUCTION_CELL]
+        self.cells: List[MetaCell] = []  # [NORMAL_CELL, REDUCTION_CELL]
         self.hyperparameters = hyperparameters
-        self.keras_model = None
-        self.model_name = 'evo_' + str(time.time())  # str(time.time()).split('.')[0][4:]
+
+        self.model_name = 'evo_' + str(time.time())
         self.metrics = Metrics()
         self.fitness = 0.
 
-    def populate_with_nasnet_blocks(self):
+        self.keras_model: NASNet = None
+
+
+    def populate_with_nasnet_metacells(self):
         groups_in_block = 5
         ops_in_group = 2
         group_inputs = 2
 
-        def get_block():
-            block = Block(group_inputs)
-            block.groups = [Group() for _ in range(groups_in_block)]
+        def get_cell():
+            cell = MetaCell(group_inputs)
+            cell.groups = [MetaGroup() for _ in range(groups_in_block)]
             for i in range(groups_in_block):
-                block.groups[i].operations = [OperationItem(i + group_inputs) for _ in range(ops_in_group)]  # +2 because 2 inputs for block, range(2) because pairwise groups
+                cell.groups[i].operations = [MetaOperation(i + group_inputs) for _ in range(ops_in_group)]  # +2 because 2 inputs for cell, range(2) because pairwise groups
                 for j in range(ops_in_group):
-                    block.groups[i].operations[j].actual_attachment = min(j, group_inputs - 1)
-            return block
+                    cell.groups[i].operations[j].actual_attachment = min(j, group_inputs - 1)
+            return cell
 
-        def randomize_block(block: Block):
-            for group_ind, group in enumerate(block.groups):
+        def randomize_cell(cell: MetaCell):
+            for group_ind, group in enumerate(cell.groups):
                 # do hidden state randomization for all but first groups
                 if group_ind > 0:
                     for op in group.operations:
@@ -278,60 +250,26 @@ class Model(SerialData):
                 for op in group.operations:
                     op.operation_type = int(np.random.random() * OperationType.SEP_1X7_7X1)
 
-        normal_block = get_block()
-        reduction_block = get_block()
+        normal_cell = get_cell()
+        reduction_cell = get_cell()
 
-        randomize_block(normal_block)
-        randomize_block(reduction_block)
+        randomize_cell(normal_cell)
+        randomize_cell(reduction_cell)
 
-        self.blocks.append(normal_block)  # normal block
-        self.blocks.append(reduction_block)  # reduction block
+        self.cells.append(normal_cell)
+        self.cells.append(reduction_cell)
 
-    def build_graph(self, graph_input):
-        builder = Builder()
-
-        block_ops = []
-        for block in self.blocks:
-            block_ops.append(block.build_block)
-
-        with tf.name_scope(f'initial_resize'):
-            resized_input = builder.dim_change(graph_input, self.hyperparameters.parameters['INITIAL_LAYER_DIMS'])
-        previous_output = resized_input
-        block_input = [resized_input, previous_output]
-        for layer in range(self.hyperparameters.parameters['CELL_LAYERS']):
-            for normal_cells in range(self.hyperparameters.parameters['NORMAL_CELL_N']):
-                with tf.name_scope(f'normal_cell_{layer}_{normal_cells}'):
-                    block_output = block_ops[0](block_input, builder, self.hyperparameters.parameters['USE_POST_BLOCK_REDUCE'])
-                    block_input = [block_output, previous_output]
-                    previous_output = block_output
-            with tf.name_scope(f'reduction_cell_{layer}'):
-                block_output = block_ops[1](block_input, builder, self.hyperparameters.parameters['USE_POST_BLOCK_REDUCE'])
-            if layer != self.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                # don't add a reduction layer at the very end of the graph before the fully connected layer
-                with tf.name_scope(f'reduction_layer_{layer}'):
-                    block_output = builder.downsize(block_output)
-                    previous_output = builder.downsize(previous_output)
-                    block_input = [block_output, previous_output]
-                    previous_output = block_output
-
-        with tf.name_scope(f'end_block'):
-            output = builder.concat(block_input)
-            output = builder.flatten(output)
-            output = builder.dense(output, size=64, activation=tf.nn.relu)
-            output = builder.dense(output, size=10)
-
-        return output
 
     def mutate(self):
         other_mutation_threshold = ((1 - self.hyperparameters.parameters['IDENTITY_THRESHOLD']) / 2.) + self.hyperparameters.parameters['IDENTITY_THRESHOLD']
-        block_index = int(np.random.random() * len(self.blocks))
-        select_block = self.blocks[block_index]
+        cell_index = int(np.random.random() * len(self.cells))
+        select_block = self.cells[cell_index]
         group_index = int(np.random.random() * len(select_block.groups))
         select_group = select_block.groups[group_index]
         item_index = int(np.random.random() * len(select_group.operations))
         select_item = select_group.operations[item_index]
         select_mutation = np.random.random()
-        mutation_string = f'mutating block {block_index}, group {group_index}, item {item_index}: '
+        mutation_string = f'mutating cell {cell_index}, group {group_index}, item {item_index}: '
         if select_mutation < self.hyperparameters.parameters['IDENTITY_THRESHOLD']:
             # identity mutation
             print(mutation_string + 'identity mutation')
@@ -344,8 +282,15 @@ class Model(SerialData):
                 new_attachment = previous_attachment
                 # ensure that the mutation doesn't result in the same attachment as before
                 while new_attachment == previous_attachment:
-                    new_attachment = int(np.random.random() * select_item.attachment_index)
+                    new_attachment = int(np.random.random() * select_item.attachment_index) #TODO: EXCLUSIVE RANDOM
+
+
+                if self.keras_model is not None:
+                    self.keras_model.hidden_state_mutation(cell_index, group_index, item_index, new_attachment)
                 select_item.actual_attachment = new_attachment
+
+
+
                 print(mutation_string + f'hidden state mutation from {previous_attachment} to {select_item.actual_attachment}')
             else:
                 print(mutation_string + f'skipping state mutation for group 0')
@@ -354,20 +299,25 @@ class Model(SerialData):
             # operation mutation
             previous_op = select_item.operation_type
             select_item.operation_type = int(np.random.random() * (OperationType.SEP_1X7_7X1 + 1))
+            if previous_op != select_item.operation_type and self.keras_model is not None:
+                self.keras_model.operation_mutation(cell_index, group_index, item_index, select_item.operation_type)
             print(mutation_string + f'operation type mutation from {previous_op} to {select_item.operation_type}')
 
     def serialize(self) -> dict:
         return {
-            'blocks': [x.serialize() for x in self.blocks],
+            'blocks': [x.serialize() for x in self.cells],
             'metrics': self.metrics.serialize(),
-            'hyperparameters': self.hyperparameters.serialize()
+            'hyperparameters': self.hyperparameters.serialize(),
+            'model_name': self.model_name
         }
 
     def deserialize(self, obj: dict) -> None:
         for block in obj['blocks']:
-            item = Block()
+            item = MetaCell()
             item.deserialize(block)
-            self.blocks.append(item)
+            self.cells.append(item)
+
+        self.model_name = obj['model_name']
 
         self.metrics = Metrics()
         self.metrics.deserialize(obj['metrics'])
@@ -383,19 +333,8 @@ class Model(SerialData):
 
             if self.keras_model is None:
                 build_time = time.time()
-                model_input = tf.keras.Input(shape=dataset.images_shape)
-                model_output = self.build_graph(model_input)
-                self.keras_model = tf.keras.Model(inputs=model_input, outputs=model_output)
+                self.keras_model = NASNet(self)
                 build_time = time.time() - build_time
-
-                tensors = [tensor for tensor in graph.as_graph_def().node]
-                # tensor_names = [tensor.name for tensor in tensors]
-                # tensor_shape = [tensor.input for tensor in tensors]
-                #
-                # print(zip(tensor_names, tensor_shape))
-                for i in range(len(tensors)):
-                    print(f'{tensors[i].name}: {tensors[i].input}')
-
 
                 tensorboard_callback = tf.keras.callbacks.TensorBoard(os.path.join(tensorboard_dir, self.model_name))
 
@@ -421,7 +360,7 @@ class Model(SerialData):
     def save_metadata(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
         os.mkdir(dir_name)
-        _write_model_structure_to_json(self, dir_name, self.model_name)
+        _write_serial_data_to_json(self, dir_name, self.model_name)
 
     def save_graph(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
@@ -431,7 +370,7 @@ class Model(SerialData):
     def clear_graph(self):
         self.keras_model = None
 
-    def duplicate(self) -> Model:
+    def duplicate(self) -> MetaModel:
         return copy.deepcopy(self)
 
     def load_graph(self, dir_path: str = model_save_dir) -> bool:
@@ -441,7 +380,7 @@ class Model(SerialData):
         contains_keras_model = False
 
         for fl in contained_files:
-            if len(fl) > 3 and fl[-3:] == '.h5':
+            if len(fl) > 3 and fl[-3:] == '.pb':
                 contains_keras_model = True
 
         if contains_keras_model:
@@ -451,51 +390,247 @@ class Model(SerialData):
             return False
 
     @staticmethod
-    def load(dir_path: str, name: str, load_graph: bool = False) -> Model:
+    def load(dir_path: str, name: str, load_graph: bool = False) -> MetaModel:
         dir_name = os.path.join(dir_path, name)
         if not os.path.exists(dir_name):
             print('Model does not exist at specified location')
-            return Model()
+            return MetaModel()
 
-        result = _load_model_structure_from_json(dir_name, name)
-        result.model_name = name
+        serial_data = _load_serial_data_from_json(dir_name, name)
+        result = MetaModel()
+        result.deserialize(serial_data)
 
         result.load_graph(dir_path)
 
         return result
 
-    @staticmethod
-    def load_most_recent_model() -> Model:
-        models = os.listdir(model_save_dir)
-        if len(models) == 0:
-            print('No saved models exist to load')
-            return Model()
-
-        models.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))  # sort models by a number attached to the end of their name
-        name = models[-1]
-        return Model.load(model_save_dir, name)
 
 
-def _write_model_structure_to_json(model: Model, dir_path: str, name: str) -> None:
-    serialized = model.serialize()
+
+class KerasBuilder:
+    def __init__(self):
+        self.activation_function = tf.nn.relu
+        self.normalization_layer = None
+
+    def get_op(self, op_type: OperationType, output_shape):
+        if op_type == OperationType.SEP_3X3:
+            layer = tf.keras.layers.SeparableConv2D(output_shape, 3, 1, 'same', activation=self.activation_function)
+        elif op_type == OperationType.SEP_5X5:
+            layer = tf.keras.layers.SeparableConv2D(output_shape, 5, 1, 'same', activation=self.activation_function)
+        elif op_type == OperationType.SEP_7X7:
+            layer = tf.keras.layers.SeparableConv2D(output_shape, 7, 1, 'same', activation=self.activation_function)
+        elif op_type == OperationType.AVG_3X3:
+            layer = tf.keras.layers.AveragePooling2D(3, 1, 'same')
+        elif op_type == OperationType.MAX_3X3:
+            layer = tf.keras.layers.MaxPool2D(3, 1, 'same')
+        elif op_type == OperationType.DIL_3X3:
+            layer = tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', dilation_rate=2, activation=self.activation_function)
+        elif op_type == OperationType.SEP_1X7_7X1:
+            layer = tf.keras.layers.Conv2D(output_shape, (1, 7), 1, 'same', activation=self.activation_function)
+            layer = tf.keras.layers.Conv2D(output_shape, (7, 1), 1, 'same', activation=self.activation_function)
+        else:  # OperationType.IDENTITY and everything else
+            layer = self.dim_change(output_shape)
+        return layer
+
+    def add(self):
+        return tf.keras.layers.Add()
+
+    def concat(self):
+        return tf.keras.layers.Concatenate(axis=3)
+
+    def dense(self, size: int = 10, activation=None):
+        layer = tf.keras.layers.Dense(size, activation=activation)
+        return layer
+
+    def flatten(self):
+        return tf.keras.layers.Flatten()
+
+    def identity(self):
+        return tf.keras.layers.Lambda(lambda x: x)
+
+    def dim_change(self, output_shape):
+        layer = tf.keras.layers.Conv2D(output_shape, 1, 1, 'same', activation=self.activation_function)
+        return layer
+
+    def downsize(self, output_shape):
+        layer = tf.keras.layers.Conv2D(output_shape, 3, 2, 'same', activation=self.activation_function)
+        return layer
+
+    def batch_norm(self):
+        return tf.keras.layers.BatchNormalization()
+
+    def layer_norm(self):
+        return tf.keras.layers.LayerNormalization(axis=3)
+
+
+class NASGroup(tf.keras.layers.Layer):
+    def __init__(self, size: int, meta_group: MetaGroup):
+        super().__init__()
+
+        builder = KerasBuilder()
+
+        self.ops: List[tf.keras.layers.Layer] = []
+        self.attachments: List[int] = []
+
+        for op in meta_group.operations:
+            self.ops.append(builder.get_op(op.operation_type, size))
+            self.attachments.append(op.actual_attachment)
+
+        self.addition_layer = builder.add()
+
+    def call(self, inputs, training=False, mask=None):
+        results = []
+        for index, obj in enumerate(self.ops):
+            results.append(obj(inputs[self.attachments[index]]))
+
+        return self.addition_layer(results)
+
+
+class NASCell(tf.keras.layers.Layer):
+    def __init__(self, size: int, meta_cell: MetaCell):
+        super().__init__()
+
+        builder = KerasBuilder()
+
+        self.groups: List[NASGroup] = []
+
+        used_group_indexes: List[int] = [0, 1]  # last cell, cell before that
+        for group in meta_cell.groups:
+            self.groups.append(NASGroup(size, group))
+            for op in group.operations:
+                used_group_indexes.append(op.actual_attachment)
+
+        self.unused_group_indexes: List[int] = [x for x in range(len(meta_cell.groups) + 2) if x not in used_group_indexes]
+
+        self.post_concat = builder.concat()
+        self.post_reduce = builder.dim_change(size)
+
+    def call(self, inputs, training=False, mask=None):
+        available_inputs = [x for x in inputs]
+        for group in self.groups:
+            group_output = group(available_inputs)
+            available_inputs.append(group_output)
+
+        result = available_inputs[-1]
+
+        if len(self.unused_group_indexes) > 1:
+            concat_groups = [available_inputs[x] for x in self.unused_group_indexes]
+            result = self.post_concat(concat_groups)
+            result = self.post_reduce(result)
+        return [result, inputs[0]]
+
+
+class NormalCell(NASCell):
+    pass #here for semantics only
+
+
+class ReductionCell(NASCell):
+    def __init__(self, size: int, meta_cell: MetaCell):
+        super().__init__(size, meta_cell)
+
+        builder = KerasBuilder()
+
+        self.post_reduce_current = builder.downsize(size)
+        self.post_reduce_previous = builder.downsize(size)
+
+    def call(self, inputs, training=False, mask=None):
+        [current_result, previous_cell_result] = super().call(inputs)
+        downsize_current = self.post_reduce_current(current_result)
+        downsize_previous = self.post_reduce_previous(previous_cell_result)
+        return [downsize_current, downsize_previous]
+
+
+class NASNet(tf.keras.Model):
+    def __init__(self, meta_model: MetaModel):
+        super().__init__()
+
+        builder = KerasBuilder()
+
+        model_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
+
+        self.cells: List[NASCell] = []
+
+        #create blocks based on meta model
+        for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
+            with tf.name_scope(f'normal_cell_{layer}'):
+                for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
+                    self.cells.append(NormalCell(model_size, meta_model.cells[0]))
+            with tf.name_scope(f'reduction_cell_{layer}'):
+                if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
+                    self.cells.append(ReductionCell(model_size, meta_model.cells[1]))
+
+        with tf.name_scope('end_block'):
+            self.initial_resize = builder.dim_change(model_size)
+            self.final_concat = builder.concat()
+            self.final_flatten = builder.flatten()
+            self.final_dense_1 = builder.dense(size=64, activation=tf.nn.relu)
+            self.final_dense_2 = builder.dense(size=10)
+
+
+    def operation_mutation(self, cell_index: int, group_index: int, operation_index: int, new_operation: int):
+        pass
+
+    def hidden_state_mutation(self, cell_index: int, group_index: int, operation_index: int, new_hidden_state: int):
+        pass
+
+    def call(self, inputs, training=False, mask=None):
+        previous_output = self.initial_resize(inputs)
+
+        previous_output = [previous_output, previous_output]
+
+        for cell in self.cells:
+            previous_output = cell(previous_output)
+
+        output = self.final_concat(previous_output)
+        output = self.final_flatten(output)
+        output = self.final_dense_1(output)
+        output = self.final_dense_2(output)
+
+        return output
+
+
+def _write_serial_data_to_json(data: SerialData, dir_path: str, name: str) -> None:
+    serialized = data.serialize()
     write_json_to_file(serialized, dir_path, name)
 
 
-def _load_model_structure_from_json(dir_path: str, name: str) -> Model:
+def _load_serial_data_from_json(dir_path: str, name: str) -> dict:
     serialized = read_json_from_file(dir_path, name)
-    model = Model()
-    model.deserialize(serialized)
-    return model
+    return serialized
 
 
 def _load_keras_model(dir_path: str, name: str):
-    model = load_model(os.path.join(dir_path, name + '.h5'))
+    model = load_model(os.path.join(dir_path, name + '.pb'))
     return model
 
 
 def _save_keras_model(keras_model, dir_path: str, model_name: str):
-    keras_model.save(os.path.join(dir_path, model_name + '.h5'))
+    keras_model.save(os.path.join(dir_path, model_name + '.pb'))
+
+
+
 
 
 if __name__ == '__main__':
-    pass
+    #tf.compat.v1.disable_eager_execution()
+
+
+
+    meta_model = MetaModel()
+    meta_model.populate_with_nasnet_metacells()
+    keras_model = NASNet(meta_model)
+
+    optimizer = tf.keras.optimizers.Adam(meta_model.hyperparameters.parameters['LEARNING_RATE'])
+    keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+
+    logdir = os.path.join(tensorboard_dir, 'test_' + str(time.time()))
+    writer = tf.summary.create_file_writer(logdir)
+    tf.summary.trace_on(graph=True, profiler=True)
+
+    dataset = Dataset.get_build_set()
+    keras_model.fit(dataset.train_images, dataset.train_labels, epochs=1)
+    # tf.keras.utils.plot_model(keras_model, 'model_image.png', expand_nested=True, show_layer_names=True, show_shapes=True)
+
+    with writer.as_default():
+        tf.summary.trace_export(name='model_trace', step=0, profiler_outdir=logdir)
+
