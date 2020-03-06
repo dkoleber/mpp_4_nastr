@@ -236,7 +236,7 @@ class MetaModel(SerialData):
         self.cells.append(reduction_cell)
 
     def mutate(self):
-        other_mutation_threshold = ((1 - self.hyperparameters.parameters['IDENTITY_THRESHOLD']) / 2.) + self.hyperparameters.parameters['IDENTITY_THRESHOLD']
+        other_mutation_threshold = ((1. - self.hyperparameters.parameters['IDENTITY_THRESHOLD']) / 2.) + self.hyperparameters.parameters['IDENTITY_THRESHOLD']
         cell_index = int(np.random.random() * len(self.cells))
         select_block = self.cells[cell_index]
         group_index = int(np.random.random() * len(select_block.groups))
@@ -261,11 +261,9 @@ class MetaModel(SerialData):
 
 
                 if self.model_data is not None:
-                    self.model_data.hidden_state_mutation(self.hyperparameters, cell_index, group_index, item_index, new_attachment, select_item.operation_type)
+                    with self.keras_graph.as_default():
+                        self.model_data.hidden_state_mutation(self.hyperparameters, cell_index, group_index, item_index, new_attachment, select_item.operation_type)
                 select_item.actual_attachment = new_attachment
-
-
-
                 print(mutation_string + f'hidden state mutation from {previous_attachment} to {select_item.actual_attachment}')
             else:
                 print(mutation_string + f'skipping state mutation for group 0')
@@ -275,7 +273,8 @@ class MetaModel(SerialData):
             previous_op = select_item.operation_type
             select_item.operation_type = int(np.random.random() * (OperationType.SEP_1X7_7X1 + 1))
             if previous_op != select_item.operation_type and self.model_data is not None:
-                self.model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
+                with self.keras_graph.as_default():
+                    self.model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
             print(mutation_string + f'operation type mutation from {previous_op} to {select_item.operation_type}')
 
     def serialize(self) -> dict:
@@ -514,13 +513,9 @@ class ModelDataHolder:
         builder = KerasBuilder()
 
         def mutate_layer(index):
-            print('== OP MUTATION ==')
-            print(self.cells[index].groups[group_index].ops[operation_index].get_weights())
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
             self.cells[index].groups[group_index].ops[operation_index] = builder.get_op(new_operation, previous_input_shape[-1])
             self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
-            print('------')
-            print(self.cells[index].groups[group_index].ops[operation_index].get_weights())
 
         # print(f'++ cell index: {cell_index}, group_index: {group_index}, operation_index:')
 
@@ -540,13 +535,9 @@ class ModelDataHolder:
         builder = KerasBuilder()
 
         def mutate_layer(index):
-            print('== STATE MUTATION ==')
-            print(self.cells[index].groups[group_index].ops[operation_index].get_weights())
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
             self.cells[index].groups[group_index].ops[operation_index] = builder.get_op(operation_type, previous_input_shape[-1])
             self.cells[index].groups[group_index].attachments[operation_index] = new_hidden_state
-            print('------')
-            print(self.cells[index].groups[group_index].ops[operation_index].get_weights())
 
         for layer in range(hyperparameters.parameters['CELL_LAYERS']):
             for normal_cells in range(hyperparameters.parameters['NORMAL_CELL_N']):

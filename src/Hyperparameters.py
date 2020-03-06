@@ -12,18 +12,18 @@ class Hyperparameters(SerialData):
             'CELL_LAYERS': 3,
             'INITIAL_LAYER_DIMS': 16,
             'USE_POST_BLOCK_REDUCE': True,
-            'TRAIN_EPOCHS': 1,
-            'LEARNING_RATE': 0.001,
+            'TRAIN_EPOCHS': 2,
+            'LEARNING_RATE': 0.01,
             'STRATEGY': 'aging',
             'ROUNDS': 16,
-            'POPULATION_SIZE': 16,
+            'POPULATION_SIZE': 1,
             'STRATEGY_SELECTION_SIZE': 8,
         }
         if debug_mode:
             self.parameters = {
                 'IDENTITY_THRESHOLD': .33,
                 'NORMAL_CELL_N': 1,
-                'CELL_LAYERS': 1,
+                'CELL_LAYERS': 2,
                 'INITIAL_LAYER_DIMS': 1,
                 'USE_POST_BLOCK_REDUCE': True,
                 'TRAIN_EPOCHS': 1,

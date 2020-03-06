@@ -13,7 +13,7 @@ from Hyperparameters import Hyperparameters
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-DEBUG = True
+DEBUG = False
 
 
 class EvolutionProgress(SerialData):
@@ -90,6 +90,9 @@ def do_evolution(dir_path: str, num_rounds: int):
     print(f'Evaluating {evolution_rounds_to_conduct} evolution rounds ({evolution_rounds_remaining} of {evolution_rounds_target} remain)')
     print()
 
+    if actual_num_rounds == 0:
+        return history
+
     # == LOAD THE DATASET ==
 
     dataset = None
@@ -117,7 +120,7 @@ def do_evolution(dir_path: str, num_rounds: int):
         write_serialized_progress = progress.serialize()
         write_json_to_file(write_serialized_progress, dir_path, progress_path_name)
 
-    new_population = [MetaModel() for _ in range(init_population_to_conduct)]
+    new_population = [MetaModel(params) for _ in range(init_population_to_conduct)]
     for index, candidate in enumerate(new_population):
         print(f'Evaluating candidate {index} of initial population')
         candidate.populate_with_nasnet_metacells()
