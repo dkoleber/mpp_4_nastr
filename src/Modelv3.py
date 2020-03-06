@@ -30,7 +30,7 @@ TODO:
 
 =MEDIUM PRIORITY=
 - add researched selection routine
-- non-overlap selection for aging selection
+- non-overlap selection for aging selection ***********
 - increasing epochs over time?
 
 =LOW PRIORITY=
@@ -434,7 +434,6 @@ class GroupDataHolder:
 
 class CellDataHolder:
     def __init__(self, size: int, meta_cell: MetaCell):
-
         builder = KerasBuilder()
 
         self.groups: List[GroupDataHolder] = []
@@ -469,13 +468,13 @@ class CellDataHolder:
 
 
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, size: int, meta_cell: MetaCell):
+    def __init__(self, size: int, meta_cell: MetaCell, expansion_factor: int):
         super().__init__(size, meta_cell)
 
         builder = KerasBuilder()
 
-        self.post_reduce_current = builder.downsize(size)
-        self.post_reduce_previous = builder.downsize(size)
+        self.post_reduce_current = builder.downsize(size * expansion_factor)
+        self.post_reduce_previous = builder.downsize(size * expansion_factor)
 
     def build(self, inputs):
         [current_result, previous_cell_result] = super().build(inputs)
@@ -498,10 +497,11 @@ class ModelDataHolder:
             for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
                 self.cells.append(CellDataHolder(model_size, meta_model.cells[0]))
             if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                self.cells.append(ReductionCellDataHolder(model_size, meta_model.cells[1]))
+                self.cells.append(ReductionCellDataHolder(model_size, meta_model.cells[1], meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR']))
+            model_size *= meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR']
 
         with tf.name_scope('end_block'):
-            self.initial_resize = builder.dim_change(model_size)
+            self.initial_resize = builder.dim_change(meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS'])
             self.final_concat = builder.concat()
             self.final_flatten = builder.flatten()
             self.final_dense_1 = builder.dense(size=64, activation=tf.nn.relu)

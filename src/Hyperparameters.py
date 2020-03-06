@@ -12,12 +12,13 @@ class Hyperparameters(SerialData):
             'CELL_LAYERS': 3,
             'INITIAL_LAYER_DIMS': 16,
             'USE_POST_BLOCK_REDUCE': True,
-            'TRAIN_EPOCHS': 2,
-            'LEARNING_RATE': 0.01,
+            'TRAIN_EPOCHS': 1,
+            'LEARNING_RATE': 0.02,
             'STRATEGY': 'aging',
             'ROUNDS': 16,
-            'POPULATION_SIZE': 1,
+            'POPULATION_SIZE': 16,
             'STRATEGY_SELECTION_SIZE': 8,
+            'LAYER_EXPANSION_FACTOR': 2,
         }
         if debug_mode:
             self.parameters = {
@@ -27,11 +28,12 @@ class Hyperparameters(SerialData):
                 'INITIAL_LAYER_DIMS': 1,
                 'USE_POST_BLOCK_REDUCE': True,
                 'TRAIN_EPOCHS': 1,
-                'LEARNING_RATE': 0.01,
+                'LEARNING_RATE': 0.02,
                 'STRATEGY': 'aging',
                 'ROUNDS': 1,
                 'POPULATION_SIZE': 1,
                 'STRATEGY_SELECTION_SIZE': 2,
+                'LAYER_EXPANSION_FACTOR': 2,
             }
 
     def serialize(self) -> dict:

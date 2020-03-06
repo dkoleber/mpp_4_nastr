@@ -15,7 +15,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEBUG = False
 
-
 class EvolutionProgress(SerialData):
     def __init__(self):
         self.parameters = {
@@ -186,11 +185,13 @@ def plot_history(dir_path: str):
             if name in progress.parameters['history_names']:
                 history.append(model)
 
-    x = [x for x in range(len(history))]
-    y = [x.fitness for x in history]
+    fitness_calculator = AccuracyCalculator()
 
     for candidate in history:
-        print(candidate.metrics)
+        candidate.fitness = fitness_calculator.calculate_fitness(candidate.metrics)
+
+    x = [x for x in range(len(history))]
+    y = [x.fitness for x in history]
 
     area = np.pi*8
 
