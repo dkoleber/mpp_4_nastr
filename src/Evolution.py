@@ -7,13 +7,13 @@ from Dataset import Dataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv2 import MetaModel
+from Modelv3 import MetaModel
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-DEBUG = False
+DEBUG = True
 
 
 class EvolutionProgress(SerialData):
@@ -90,7 +90,7 @@ def do_evolution(dir_path: str, num_rounds: int):
     print(f'Evaluating {evolution_rounds_to_conduct} evolution rounds ({evolution_rounds_remaining} of {evolution_rounds_target} remain)')
     print()
 
-
+    # == LOAD THE DATASET ==
 
     dataset = None
     if DEBUG:
@@ -105,20 +105,15 @@ def do_evolution(dir_path: str, num_rounds: int):
         evolution_strategy = AgingStrategy(params.parameters['STRATEGY_SELECTION_SIZE'])
 
     def handle_new_candidate(new_candidate):
-        new_candidate.model_name = 'evo_' + str(time.time())
+        new_candidate.build_model(dataset.images_shape)
         new_candidate.evaluate(dataset)
         new_candidate.save_metadata(dir_path)
-        new_candidate.save_graph(dir_path)
-        new_candidate.clear_graph()
         new_candidate.fitness = fitness_calculator.calculate_fitness(new_candidate.metrics)
         history.append(new_candidate)
 
     def write_progress():
-        # progress.parameters['history_names'].append(candidate.model_name)
-        # progress.parameters['population_names'].append(candidate.model_name)
         progress.parameters['history_names'] = [x.model_name for x in history]
         progress.parameters['population_names'] = [x.model_name for x in population]
-
         write_serialized_progress = progress.serialize()
         write_json_to_file(write_serialized_progress, dir_path, progress_path_name)
 
@@ -130,12 +125,25 @@ def do_evolution(dir_path: str, num_rounds: int):
         population.append(candidate)
         write_progress()
 
+    # print(history[-1].model_data.final_dense_2.get_weights())
+
     for r in range(evolution_rounds_to_conduct):
         print(f'Performing evolution round {r}')
         population, new_candidates, removed_candidates = evolution_strategy.evolve_population(population)
         for candidate in new_candidates:
             handle_new_candidate(candidate)
             write_progress()
+        for candidate in removed_candidates:
+            candidate.clear_graph()
+
+    # print(history[-1].model_data.final_dense_2.get_weights())
+
+
+    # tc = MetaModel.load(dir_path, history[-1].model_name, True)
+    # tc.model_name = 'evo_' + str(time.time())
+    # tc.evaluate(dataset)
+    # tc.save_graph(dir_path)
+    # tc.save_metadata(dir_path)
 
     return history
 
@@ -170,7 +178,7 @@ def plot_history(dir_path: str):
     history_names = [x for x in os.listdir(dir_path) if '.json' not in x]
     history = []
     for name in history_names:
-        model = Model.load(dir_path, name)
+        model = MetaModel.load(dir_path, name)
         if model.hyperparameters == params:
             if name in progress.parameters['history_names']:
                 history.append(model)

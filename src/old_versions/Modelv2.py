@@ -223,7 +223,7 @@ class MetaModel(SerialData):
         self.fitness = 0.
 
         self.keras_model: NASNet = None
-
+        self.keras_graph: tf.Graph = None
 
     def populate_with_nasnet_metacells(self):
         groups_in_block = 5
@@ -258,7 +258,6 @@ class MetaModel(SerialData):
 
         self.cells.append(normal_cell)
         self.cells.append(reduction_cell)
-
 
     def mutate(self):
         other_mutation_threshold = ((1 - self.hyperparameters.parameters['IDENTITY_THRESHOLD']) / 2.) + self.hyperparameters.parameters['IDENTITY_THRESHOLD']
@@ -327,9 +326,9 @@ class MetaModel(SerialData):
 
     def evaluate(self, dataset: Dataset) -> None:
         # keras_graph = tfp.keras.backend.get_session().graph
-        keras_graph = tf.Graph()
+        self.keras_graph = tf.Graph()
 
-        with keras_graph.as_default() as graph:
+        with self.keras_graph.as_default() as graph:
 
             if self.keras_model is None:
                 build_time = time.time()
@@ -359,16 +358,24 @@ class MetaModel(SerialData):
 
     def save_metadata(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
-        os.mkdir(dir_name)
+        if not os.path.exists(dir_name):
+            os.mkdir(dir_name)
         _write_serial_data_to_json(self, dir_name, self.model_name)
 
     def save_graph(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
-        if self.keras_model is not None:
-            _save_keras_model(self.keras_model, dir_name, self.model_name)
+        if not os.path.exists(dir_name):
+            os.mkdir(dir_name)
+        save_time = time.time()
+        with self.keras_graph.as_default():
+            if self.keras_model is not None:
+                _save_keras_model(self.keras_model, dir_name, self.model_name)
+        save_time = time.time() - save_time
+        self.metrics.metrics['save_time'] = save_time
 
     def clear_graph(self):
         self.keras_model = None
+        self.keras_graph = None
 
     def duplicate(self) -> MetaModel:
         return copy.deepcopy(self)
@@ -403,8 +410,6 @@ class MetaModel(SerialData):
         result.load_graph(dir_path)
 
         return result
-
-
 
 
 class KerasBuilder:

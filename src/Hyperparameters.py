@@ -12,7 +12,7 @@ class Hyperparameters(SerialData):
             'CELL_LAYERS': 3,
             'INITIAL_LAYER_DIMS': 16,
             'USE_POST_BLOCK_REDUCE': True,
-            'TRAIN_EPOCHS': 2,
+            'TRAIN_EPOCHS': 1,
             'LEARNING_RATE': 0.001,
             'STRATEGY': 'aging',
             'ROUNDS': 16,
@@ -27,10 +27,10 @@ class Hyperparameters(SerialData):
                 'INITIAL_LAYER_DIMS': 1,
                 'USE_POST_BLOCK_REDUCE': True,
                 'TRAIN_EPOCHS': 1,
-                'LEARNING_RATE': 0.001,
+                'LEARNING_RATE': 0.01,
                 'STRATEGY': 'aging',
                 'ROUNDS': 1,
-                'POPULATION_SIZE': 2,
+                'POPULATION_SIZE': 1,
                 'STRATEGY_SELECTION_SIZE': 2,
             }
 

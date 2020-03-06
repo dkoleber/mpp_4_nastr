@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple
 import numpy as np
 
-from Modelv2 import MetaModel
+from Modelv3 import MetaModel
 
 
 class EvolutionStrategy(ABC):
@@ -25,7 +25,7 @@ class AgingStrategy(EvolutionStrategy):
         sampled_candidates = [population[x] for x in np.random.randint(0, len(population), size=self.sample_size)]  # TODO: non-overlapping
         sampled_fitness = [x.fitness for x in sampled_candidates]
         best_candidate_index = int(np.argmax(sampled_fitness))
-        new_candidate = sampled_candidates[best_candidate_index].duplicate()
+        new_candidate = sampled_candidates[best_candidate_index].produce_child()
         new_candidate.mutate()
         population.append(new_candidate)
         return population[1:], [new_candidate], [population[0]]
