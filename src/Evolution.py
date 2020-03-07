@@ -107,6 +107,7 @@ def do_evolution(dir_path: str, num_rounds: int):
         evolution_strategy = AgingStrategy(params.parameters['STRATEGY_SELECTION_SIZE'])
 
     def handle_new_candidate(new_candidate):
+        new_candidate.model_name = 'evo_' + str(time.time())  # this is redone here since all models are initialized within microseconds of eachother for init population
         new_candidate.build_model(dataset.images_shape)
         new_candidate.evaluate(dataset)
         new_candidate.save_metadata(dir_path)
@@ -200,6 +201,9 @@ def plot_history(dir_path: str):
     plt.xlabel('candidate')
     plt.ylabel('fitness')
     plt.show()
+
+    for candidate in history:
+        candidate.plot_graph(dir_path)
 
 
 if __name__ == '__main__':

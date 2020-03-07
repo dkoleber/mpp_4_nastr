@@ -14,6 +14,7 @@ import copy
 from FileManagement import *
 from Metrics import Metrics
 from OperationType import OperationType
+from SGDR import SGDR
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
@@ -86,21 +87,31 @@ class KerasBuilder:
         self.normalization_layer = None
 
     def get_op(self, op_type: OperationType, output_shape):
+        result = []
+
         if op_type == OperationType.SEP_3X3:
-            layer = tf.keras.layers.SeparableConv2D(output_shape, 3, 1, 'same', activation=self.activation_function)
+            result.append(tf.keras.layers.SeparableConv2D(output_shape, 3, 1, 'same', activation=self.activation_function))
         elif op_type == OperationType.SEP_5X5:
-            layer = tf.keras.layers.SeparableConv2D(output_shape, 5, 1, 'same', activation=self.activation_function)
+            result.append(tf.keras.layers.SeparableConv2D(output_shape, 5, 1, 'same', activation=self.activation_function))
         elif op_type == OperationType.SEP_7X7:
-            layer = tf.keras.layers.SeparableConv2D(output_shape, 7, 1, 'same', activation=self.activation_function)
+            result.append(tf.keras.layers.SeparableConv2D(output_shape, 7, 1, 'same', activation=self.activation_function))
         elif op_type == OperationType.AVG_3X3:
-            layer = tf.keras.layers.AveragePooling2D(3, 1, 'same')
+            result.append(tf.keras.layers.AveragePooling2D(3, 1, 'same'))
         elif op_type == OperationType.MAX_3X3:
-            layer = tf.keras.layers.MaxPool2D(3, 1, 'same')
+            result.append(tf.keras.layers.MaxPool2D(3, 1, 'same'))
         elif op_type == OperationType.DIL_3X3:
-            layer = tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', dilation_rate=2, activation=self.activation_function)
+            result.append(tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', dilation_rate=2, activation=self.activation_function))
         elif op_type == OperationType.SEP_1X7_7X1:
-            layer = tf.keras.layers.Conv2D(output_shape, (1, 7), 1, 'same', activation=self.activation_function)
-            layer = tf.keras.layers.Conv2D(output_shape, (7, 1), 1, 'same', activation=self.activation_function)
+            result.append(tf.keras.layers.Conv2D(output_shape, (1, 7), 1, 'same', activation=self.activation_function))
+            result.append(tf.keras.layers.Conv2D(output_shape, (7, 1), 1, 'same', activation=self.activation_function))
+        else:  # OperationType.IDENTITY and everything else
+            result.append(self.dim_change(output_shape))
+
+        return result
+
+    def _get_op(self, op_type: OperationType, output_shape):
+        if  OperationType.SEP_3X3 <= op_type <= OperationType.SEP_1X7_7X1:
+            layer = tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', activation=self.activation_function)
         else:  # OperationType.IDENTITY and everything else
             layer = self.dim_change(output_shape)
         return layer
@@ -127,6 +138,7 @@ class KerasBuilder:
 
     def downsize(self, output_shape):
         layer = tf.keras.layers.Conv2D(output_shape, 3, 2, 'same', activation=self.activation_function)
+
         return layer
 
     def batch_norm(self):
@@ -326,7 +338,11 @@ class MetaModel(SerialData):
     def evaluate(self, dataset: Dataset) -> None:
         with self.keras_graph.as_default():
             train_time = time.time()
-            self.keras_model.fit(dataset.train_images, dataset.train_labels, epochs=self.hyperparameters.parameters['TRAIN_EPOCHS'])
+
+            BATCH_SIZE = 64
+            sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels), .25)
+
+            self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=self.hyperparameters.parameters['TRAIN_EPOCHS'], callbacks=[sgdr])
             train_time = time.time() - train_time
 
             inference_time = time.time()
@@ -342,7 +358,19 @@ class MetaModel(SerialData):
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
         _write_serial_data_to_json(self, dir_name, self.model_name)
-        # tf.keras.utils.plot_model(self.keras_model, os.path.join(dir_name, self.model_name + '.png'), expand_nested=True, show_layer_names=False, show_shapes=False)
+
+    def plot_graph(self, dir_path):
+        dir_name = os.path.join(dir_path, self.model_name)
+        if not os.path.exists(dir_name):
+            os.mkdir(dir_name)
+        had_keras_model: bool = self.keras_model is not None
+        if not had_keras_model:
+            self.build_model([16, 16, 3])
+
+        tf.keras.utils.plot_model(self.keras_model, os.path.join(dir_name, self.model_name + '.png'), expand_nested=True, show_layer_names=False, show_shapes=True)
+
+        if not had_keras_model:
+            self.clear_graph()
 
     def save_graph(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
@@ -411,15 +439,32 @@ class MetaModel(SerialData):
         return result
 
 
+class OperationDataHolder:
+    def __init__(self, op_type: int, size: int):
+        builder = KerasBuilder()
+        self.size = size
+        self.ops = builder.get_op(op_type, size)
+    def build(self, inputs):
+        layer = inputs
+        for op in self.ops:
+            layer = op(layer)
+        return layer
+    def compile(self, input_shape):
+        previous_shape = input_shape
+        for op in self.ops:
+            op.build(previous_shape)
+            previous_shape = op.get_output_shape_at(0)
+
+
+
 class GroupDataHolder:
     def __init__(self, size: int, meta_group: MetaGroup):
         builder = KerasBuilder()
-
         self.ops: List[tf.keras.layers.Layer] = []
         self.attachments: List[int] = []
 
         for op in meta_group.operations:
-            self.ops.append(builder.get_op(op.operation_type, size))
+            self.ops.append(OperationDataHolder(op.operation_type, size))
             self.attachments.append(op.actual_attachment)
 
         self.addition_layer = builder.add()
@@ -427,13 +472,13 @@ class GroupDataHolder:
     def build(self, inputs):
         results = []
         for index, obj in enumerate(self.ops):
-            results.append(obj(inputs[self.attachments[index]]))
+            results.append(obj.build(inputs[self.attachments[index]]))
 
         return self.addition_layer(results)
 
 
 class CellDataHolder:
-    def __init__(self, size: int, meta_cell: MetaCell):
+    def __init__(self, size: int, meta_cell: MetaCell, use_post_reduce:bool = True):
         builder = KerasBuilder()
 
         self.groups: List[GroupDataHolder] = []
@@ -447,7 +492,9 @@ class CellDataHolder:
         self.unused_group_indexes: List[int] = [x for x in range(len(meta_cell.groups) + 2) if x not in used_group_indexes]
 
         self.post_concat = builder.concat()
-        self.post_reduce = builder.dim_change(size)
+        self.post_reduce = None
+        if use_post_reduce:
+            self.post_reduce = builder.dim_change(size)
         self.post_identity = builder.identity()
 
     def build(self, inputs):
@@ -461,20 +508,23 @@ class CellDataHolder:
         if len(self.unused_group_indexes) > 1:
             concat_groups = [available_inputs[x] for x in self.unused_group_indexes]
             result = self.post_concat(concat_groups)
+
+        if self.post_reduce is not None:
             result = self.post_reduce(result)
 
         results = self.post_identity([result, inputs[0]])
+        # results = [result, inputs[0]]
         return results
 
 
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, size: int, meta_cell: MetaCell, expansion_factor: int):
-        super().__init__(size, meta_cell)
+    def __init__(self, size: int, meta_cell: MetaCell, use_post_reduce:bool = True, expansion_factor: int = 1):
+        super().__init__(size, meta_cell, use_post_reduce)
 
         builder = KerasBuilder()
 
-        self.post_reduce_current = builder.downsize(size * expansion_factor)
-        self.post_reduce_previous = builder.downsize(size * expansion_factor)
+        self.post_reduce_current = builder.downsize(int(size * expansion_factor))
+        self.post_reduce_previous = builder.downsize(int(size * expansion_factor))
 
     def build(self, inputs):
         [current_result, previous_cell_result] = super().build(inputs)
@@ -489,22 +539,23 @@ class ModelDataHolder:
         builder = KerasBuilder()
 
         model_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
+        use_post_reduce = meta_model.hyperparameters.parameters['USE_POST_BLOCK_REDUCE']
 
         self.cells: List[CellDataHolder] = []
 
         # create blocks based on meta model
         for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
             for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                self.cells.append(CellDataHolder(model_size, meta_model.cells[0]))
+                self.cells.append(CellDataHolder(model_size, meta_model.cells[0], use_post_reduce))
             if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                self.cells.append(ReductionCellDataHolder(model_size, meta_model.cells[1], meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR']))
-            model_size *= meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR']
+                self.cells.append(ReductionCellDataHolder(model_size, meta_model.cells[1], use_post_reduce, meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR']))
+            model_size = int(model_size * meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR'])
 
         with tf.name_scope('end_block'):
             self.initial_resize = builder.dim_change(meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS'])
             self.final_concat = builder.concat()
             self.final_flatten = builder.flatten()
-            self.final_dense_1 = builder.dense(size=64, activation=tf.nn.relu)
+            # self.final_dense_1 = builder.dense(size=64, activation=tf.nn.relu)
             self.final_dense_2 = builder.dense(size=10)
 
     def operation_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_operation: int):
@@ -514,8 +565,8 @@ class ModelDataHolder:
 
         def mutate_layer(index):
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
-            self.cells[index].groups[group_index].ops[operation_index] = builder.get_op(new_operation, previous_input_shape[-1])
-            self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
+            self.cells[index].groups[group_index].ops[operation_index] = OperationDataHolder(new_operation, previous_input_shape[-1])
+            self.cells[index].groups[group_index].ops[operation_index].compile(previous_input_shape)
 
         # print(f'++ cell index: {cell_index}, group_index: {group_index}, operation_index:')
 
@@ -536,7 +587,7 @@ class ModelDataHolder:
 
         def mutate_layer(index):
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
-            self.cells[index].groups[group_index].ops[operation_index] = builder.get_op(operation_type, previous_input_shape[-1])
+            self.cells[index].groups[group_index].ops[operation_index] = OperationDataHolder(operation_type, previous_input_shape[-1])
             self.cells[index].groups[group_index].attachments[operation_index] = new_hidden_state
 
         for layer in range(hyperparameters.parameters['CELL_LAYERS']):
