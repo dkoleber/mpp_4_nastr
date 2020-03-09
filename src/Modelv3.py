@@ -109,20 +109,13 @@ class KerasBuilder:
 
         return result
 
-    def _get_op(self, op_type: OperationType, output_shape):
-        if  OperationType.SEP_3X3 <= op_type <= OperationType.SEP_1X7_7X1:
-            layer = tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', activation=self.activation_function)
-        else:  # OperationType.IDENTITY and everything else
-            layer = self.dim_change(output_shape)
-        return layer
-
     def add(self):
         return tf.keras.layers.Add()
 
     def concat(self):
         return tf.keras.layers.Concatenate(axis=3)
 
-    def dense(self, size: int = 10, activation=None):
+    def dense(self, size, activation=None):
         layer = tf.keras.layers.Dense(size, activation=activation)
         return layer
 
@@ -141,11 +134,6 @@ class KerasBuilder:
 
         return layer
 
-    def batch_norm(self):
-        return tf.keras.layers.BatchNormalization()
-
-    def layer_norm(self):
-        return tf.keras.layers.LayerNormalization(axis=3)
 
 
 class MetaOperation(SerialData):
@@ -439,63 +427,191 @@ class MetaModel(SerialData):
         return result
 
 
-class OperationDataHolder:
-    def __init__(self, op_type: int, size: int):
-        builder = KerasBuilder()
-        self.size = size
-        self.ops = builder.get_op(op_type, size)
-    def build(self, inputs):
-        layer = inputs
-        for op in self.ops:
-            layer = op(layer)
-        return layer
-    def compile(self, input_shape):
-        previous_shape = input_shape
-        for op in self.ops:
-            op.build(previous_shape)
-            previous_shape = op.get_output_shape_at(0)
+class Relu6Layer(tf.keras.layers.Layer):
+    def __init__(self):
+        super().__init__()
+    def call(self, inputs, training=False, mask=None):
+        return tf.nn.relu6(inputs)
 
+
+
+class KerasOperation(tf.keras.layers.Layer, ABC):
+    def __init__(self, output_dim: int, stride: int):
+        super().__init__()
+        self.output_dim = output_dim
+        self.stride = stride
+
+
+class SeperableConvolutionOperation(KerasOperation):
+    def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, dilation_rate: int = 1):
+        super().__init__(output_dim, stride)
+        self.activation_layer = Relu6Layer()
+        self.convolution_layer = tf.keras.layers.SeparableConv2D(output_dim, kernel_size, self.stride, 'same', dilation_rate=dilation_rate)
+        self.normalization_layer = None
+        if use_normalization:
+            self.normalization_layer = tf.keras.layers.BatchNormalization()
+    def call(self, inputs, training=False, mask=None):
+        layer = inputs
+        layer = self.activation_layer(layer)
+        layer = self.convolution_layer(layer)
+        if self.normalization_layer is not None:
+            layer = self.normalization_layer(layer)
+        return layer
+
+
+class AveragePoolingOperation(KerasOperation):
+    def __init__(self, output_dim: int, stride: int, pool_size: int):
+        super().__init__(output_dim, stride)
+        self.pool_size = pool_size
+        self.pooling_layer = tf.keras.layers.AveragePooling2D(pool_size, strides=stride, padding='same')
+        self.activation_layer = Relu6Layer()
+    def call(self, inputs, training=False, mask=None):
+        layer = inputs
+        layer = self.pooling_layer(layer)
+        layer = self.activation_layer(layer)
+        return layer
+
+
+class MaxPoolingOperation(KerasOperation):
+    def __init__(self, output_dim: int, stride: int, pool_size: int):
+        super().__init__(output_dim, stride)
+        self.pool_size = pool_size
+        self.pooling_layer = tf.keras.layers.MaxPool2D(pool_size, strides=stride, padding='same')
+        self.activation_layer = Relu6Layer()
+    def call(self, inputs, training=False, mask=None):
+        layer = inputs
+        layer = self.pooling_layer(layer)
+        layer = self.activation_layer(layer)
+        return layer
+
+
+class DoublySeperableConvoutionOperation(KerasOperation):
+    def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True):
+        super().__init__(output_dim, stride)
+        self.activation_layer = Relu6Layer()
+        self.convolution_layer_1 = tf.keras.layers.SeparableConv2D(output_dim, (kernel_size, 1), self.stride, 'same')
+        self.convolution_layer_2 = tf.keras.layers.SeparableConv2D(output_dim, (1, kernel_size), self.stride, 'same')
+        self.normalization_layer = None
+        if use_normalization:
+            self.normalization_layer = tf.keras.layers.BatchNormalization()
+    def call(self, inputs, training=False, mask=None):
+        layer = inputs
+        layer = self.activation_layer(layer)
+        layer = self.convolution_layer_1(layer)
+        layer = self.convolution_layer_2(layer)
+        if self.normalization_layer is not None:
+            layer = self.normalization_layer(layer)
+        return layer
+
+
+class DimensionalityReductionOperation(KerasOperation):
+    def __init__(self, output_dim: int, stride: int = 1):
+        super().__init__(output_dim, stride)
+        self.path_1_avg = None
+        self.path_1_conv = None
+        self.path_2_pad = None
+        self.path_2_avg = None
+        self.path_concat = None
+
+        self.single_path_conv = None
+
+        self.normalization = tf.keras.layers.BatchNormalization()
+
+        if self.stride == 1:
+            self.single_path_conv = tf.keras.layers.Conv2D(output_dim, 1, self.stride, 'same')
+        # else:
+        #     self.path_1_avg = tf.keras.layers.AveragePooling2D(1, self.stride, padding='same')
+        # TODO
+
+    def call(self, inputs, training=False, mask=None):
+        layer = inputs
+        layer = self.single_path_conv(layer)
+        layer = self.normalization(layer)
+        return layer
+
+
+class IdentityOperation(KerasOperation):
+    def __init__(self):
+        super().__init__(0,0)
+        self.identity_layer = tf.keras.layers.Lambda(lambda x: x)
+    def call(self, inputs, training=False, mask=None):
+        return self.identity_layer(inputs)
+
+
+class DenseOperation(tf.keras.layers.Layer):
+    def __init__(self, output_dim: int, dropout_rate: float = 1):
+        super().__init__()
+        self.dropout_layer = tf.keras.layers.Dropout(dropout_rate)
+        self.dense_layer = tf.keras.layers.Dense(output_dim)
+
+    def call(self, inputs, training=False, mask=None):
+        layer  = inputs
+        if training:
+            layer = self.dropout_layer(layer)
+        layer = self.dense_layer(layer)
+
+        return layer
+
+
+class KerasOperationFactory:
+    @staticmethod
+    def get_operation(op_type: int, output_dim: int, stride: int = 1):
+        if op_type == OperationType.SEP_3X3:
+            return SeperableConvolutionOperation(output_dim, stride, 3)
+        elif op_type == OperationType.SEP_5X5:
+            return SeperableConvolutionOperation(output_dim, stride, 5)
+        elif op_type == OperationType.SEP_7X7:
+            return SeperableConvolutionOperation(output_dim, stride, 7)
+        elif op_type == OperationType.AVG_3X3:
+            return AveragePoolingOperation(output_dim, stride, 3)
+        elif op_type == OperationType.MAX_3X3:
+            return MaxPoolingOperation(output_dim, stride, 3)
+        elif op_type == OperationType.DIL_3X3:
+            return SeperableConvolutionOperation(output_dim, stride, 3, dilation_rate=2)
+        elif op_type == OperationType.SEP_1X7_7X1:
+            return DoublySeperableConvoutionOperation(output_dim, stride, 7)
+        else:  # OperationType.IDENTITY and everything else
+            return IdentityOperation()
 
 
 class GroupDataHolder:
     def __init__(self, size: int, meta_group: MetaGroup):
-        builder = KerasBuilder()
+
         self.ops: List[tf.keras.layers.Layer] = []
         self.attachments: List[int] = []
 
         for op in meta_group.operations:
-            self.ops.append(OperationDataHolder(op.operation_type, size))
+            self.ops.append(KerasOperationFactory.get_operation(op.operation_type, size))
             self.attachments.append(op.actual_attachment)
 
-        self.addition_layer = builder.add()
+        self.addition_layer = tf.keras.layers.Add()
 
     def build(self, inputs):
         results = []
         for index, obj in enumerate(self.ops):
-            results.append(obj.build(inputs[self.attachments[index]]))
+            results.append(obj(inputs[self.attachments[index]]))
 
         return self.addition_layer(results)
 
 
 class CellDataHolder:
-    def __init__(self, size: int, meta_cell: MetaCell, use_post_reduce:bool = True):
-        builder = KerasBuilder()
+    def __init__(self, input_dim: int, meta_cell: MetaCell):
 
         self.groups: List[GroupDataHolder] = []
 
         used_group_indexes: List[int] = [0, 1]  # last cell, cell before that
         for group in meta_cell.groups:
-            self.groups.append(GroupDataHolder(size, group))
+            self.groups.append(GroupDataHolder(input_dim, group))
             for op in group.operations:
                 used_group_indexes.append(op.actual_attachment)
 
         self.unused_group_indexes: List[int] = [x for x in range(len(meta_cell.groups) + 2) if x not in used_group_indexes]
+        # self.output_size = input_dim * len(self.unused_group_indexes)
+        self.output_size = input_dim
 
-        self.post_concat = builder.concat()
-        self.post_reduce = None
-        if use_post_reduce:
-            self.post_reduce = builder.dim_change(size)
-        self.post_identity = builder.identity()
+        self.post_concat = tf.keras.layers.Concatenate(axis=3)
+        self.post_reduce = DimensionalityReductionOperation(input_dim)
+
 
     def build(self, inputs):
         available_inputs = [x for x in inputs]
@@ -509,22 +625,21 @@ class CellDataHolder:
             concat_groups = [available_inputs[x] for x in self.unused_group_indexes]
             result = self.post_concat(concat_groups)
 
-        if self.post_reduce is not None:
-            result = self.post_reduce(result)
+        # other_reduce = self.post_reduce(inputs[0])
+        other_reduce = inputs[0]
+        result = self.post_reduce(result)
 
-        results = self.post_identity([result, inputs[0]])
-        # results = [result, inputs[0]]
+        # results = self.post_identity([result, other_reduce])
+        results = [result, other_reduce]
         return results
 
 
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, size: int, meta_cell: MetaCell, use_post_reduce:bool = True, expansion_factor: int = 1):
-        super().__init__(size, meta_cell, use_post_reduce)
+    def __init__(self, input_dim: int, meta_cell: MetaCell):
+        super().__init__(input_dim, meta_cell)
 
-        builder = KerasBuilder()
-
-        self.post_reduce_current = builder.downsize(int(size * expansion_factor))
-        self.post_reduce_previous = builder.downsize(int(size * expansion_factor))
+        self.post_reduce_current = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
+        self.post_reduce_previous = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
 
     def build(self, inputs):
         [current_result, previous_cell_result] = super().build(inputs)
@@ -538,25 +653,30 @@ class ModelDataHolder:
 
         builder = KerasBuilder()
 
-        model_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
-        use_post_reduce = meta_model.hyperparameters.parameters['USE_POST_BLOCK_REDUCE']
+        initial_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
 
         self.cells: List[CellDataHolder] = []
 
+        previous_size = initial_size
         # create blocks based on meta model
         for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
             for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                self.cells.append(CellDataHolder(model_size, meta_model.cells[0], use_post_reduce))
+                cell = CellDataHolder(previous_size, meta_model.cells[0])
+                self.cells.append(cell)
+                previous_size = cell.output_size
             if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                self.cells.append(ReductionCellDataHolder(model_size, meta_model.cells[1], use_post_reduce, meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR']))
-            model_size = int(model_size * meta_model.hyperparameters.parameters['LAYER_EXPANSION_FACTOR'])
+                cell = ReductionCellDataHolder(previous_size, meta_model.cells[1])
+                self.cells.append(cell)
+                previous_size = cell.output_size
 
-        with tf.name_scope('end_block'):
-            self.initial_resize = builder.dim_change(meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS'])
-            self.final_concat = builder.concat()
-            self.final_flatten = builder.flatten()
-            # self.final_dense_1 = builder.dense(size=64, activation=tf.nn.relu)
-            self.final_dense_2 = builder.dense(size=10)
+        self.initial_resize = tf.keras.layers.Conv2D(initial_size, 3, 1, 'same')
+        self.initial_norm = tf.keras.layers.BatchNormalization()
+
+        self.final_flatten = builder.flatten()
+        self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
+        self.final_activation = Relu6Layer()
+        # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
+        self.final_dense = DenseOperation(10, .5)
 
     def operation_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_operation: int):
         actual_cell_index = 0
@@ -602,16 +722,17 @@ class ModelDataHolder:
 
     def build(self, inputs):
         previous_output = self.initial_resize(inputs)
+        previous_output = self.initial_norm(previous_output)
 
         previous_output = [previous_output, previous_output]
 
         for cell in self.cells:
             previous_output = cell.build(previous_output)
 
-        output = self.final_concat(previous_output)
-        output = self.final_flatten(output)
-        output = self.final_dense_1(output)
-        output = self.final_dense_2(output)
+        # output = self.final_flatten(previous_output[0])
+        output = self.final_pool(previous_output[0])
+        output = self.final_activation(output)
+        output = self.final_dense(output)
 
         return tf.keras.Model(inputs=inputs, outputs=output)
 
