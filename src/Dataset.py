@@ -4,46 +4,55 @@ import tensorflow as tf
 
 
 class Dataset:
-    def __init__(self, train_images, train_labels, test_images, test_labels):
-        self.train_images = train_images
-        self.train_labels = train_labels
-        self.test_images = test_images
-        self.test_labels = test_labels
-        self.images_shape = train_images[0].shape
-        self.labels_shape = test_labels[0].shape
+    def __init__(self, images, labels, train_percentage, test_percentage, validation_percentage):
+        num_samples = labels.shape[0]
+
+        self.images_shape = images[0].shape
+        self.labels_shape = labels[0].shape
+        self.num_train_samples = int(num_samples * train_percentage)
+        self.num_test_samples = int(num_samples * test_percentage)
+        self.num_validation_samples = num_samples - (self.num_test_samples + self.num_train_samples)
+
+        self.images = images
+        self.labels = labels
+
+        self.train_images = self.images[0:self.num_train_samples, :, :, :]
+        self.test_images = self.images[self.num_train_samples: self.num_train_samples + self.num_test_samples, :, :, :]
+        self.validation_images = self.images[-self.num_validation_samples:, :, :, :]
+
+        self.train_labels = self.labels[0:self.num_train_samples, :]
+        self.test_labels = self.labels[self.num_train_samples: self.num_train_samples + self.num_test_samples, :]
+        self.validation_labels = self.labels[-self.num_validation_samples:, :]
+
+        self.shuffle()
+
+    def shuffle(self):
+        pass  # TODO
 
     @staticmethod
     def get_cifar10() -> Dataset:
         (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
 
-        # train_labels = tf.one_hot(train_labels, 10)
-        # test_labels = tf.one_hot(test_labels, 10)
+        images = np.append(train_images, test_images)
+        labels = np.append(train_labels, test_labels)
 
-        # train_labels_1h = np.zeros((train_labels.size, 10))
-        # test_labels_1h = np.zeros((test_labels.size, 10))
-        #
-        # train_labels_1h[np.arange(train_labels.size), train_labels] = 1
-        # test_labels_1h[np.arange(test_labels.size), test_labels] = 1
-        #
-        # train_labels = train_labels_1h
-        # test_labels = test_labels_1h
+        images = np.true_divide(images, 127.5)
+        images = images - 1.
 
-        train_images = np.true_divide(train_images, 127.5)
-        train_images = train_images - 1.
-        test_images = np.true_divide(test_images, 127.5)
-        test_images = test_images - 1.
-
-        # train_images = np.true_divide(train_images, 255.)
-        # test_images = np.true_divide(test_images, 255.)
-
-        return Dataset(train_images, train_labels, test_images, test_labels)
+        return Dataset(images, labels, .7, .2, .1)
 
     @staticmethod
     def get_build_set() -> Dataset:
-        train_images = np.zeros([4, 16, 16, 3])
-        train_labels = np.zeros([4, 1])
+        images = np.zeros([10, 16, 16, 3])
+        labels = np.zeros([10, 1])
 
-        test_images = np.zeros([4, 16, 16, 3])
-        test_labels = np.zeros([4, 1])
+        return Dataset(images, labels, .7, .2, .1)
 
-        return Dataset(train_images, train_labels, test_images, test_labels)
+
+class ShufflerCallback(tf.keras.callbacks.Callback):
+    def __init__(self, dataset: Dataset):
+        super().__init__()
+        self.dataset = dataset
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.dataset.shuffle()

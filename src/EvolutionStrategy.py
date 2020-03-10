@@ -25,7 +25,9 @@ class AgingStrategy(EvolutionStrategy):
         sampled_candidates = [population[x] for x in np.random.randint(0, len(population), size=self.sample_size)]  # TODO: non-overlapping
         sampled_fitness = [x.fitness for x in sampled_candidates]
         best_candidate_index = int(np.argmax(sampled_fitness))
-        new_candidate = sampled_candidates[best_candidate_index].produce_child()
+        best_candidate = sampled_candidates[best_candidate_index]
+        print(f'producing child of model {best_candidate.model_name}')
+        new_candidate = best_candidate.produce_child()
         new_candidate.mutate()
         population.append(new_candidate)
         return population[1:], [new_candidate], [population[0]]

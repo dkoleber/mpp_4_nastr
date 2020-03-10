@@ -13,7 +13,56 @@ from Hyperparameters import Hyperparameters
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-DEBUG = False
+'''
+TODO:
+
+=HIGH PRIORITY=
+- soft vs hard fitness curve for accuracy / time tradeoff
+- config determines fitness calculator
+- bug: model is sometimes loaded twice (during evolution??)
+
+
+=MEDIUM PRIORITY=
+- add researched selection routine
+- non-overlap selection for aging selection ***********
+- increasing epochs over time?
+
+=LOW PRIORITY=
+- eager model surgery ?
+
+=FOR CONSIDERATION=
+- should block output be dim reduced after concat?
+
+=EXPERIMENTS=
+coorelation between training accuracy vs late training accuracy
+coorelation between FLOPS vs size vs time
+coorelation betweeen accuracy of low filter numbers vs high
+
+'''
+
+'''
+
+model surgery
+increasing epochs
+pareto sampling
+scheduled droppath
+cosine annealing
+rounded curve for accuracy tradeoff
+
+1. Aging Selection
+    1. select a set S candidates from population P
+    2. select a set N candidates from S to have children (set M)
+    3. mutate all candidates in M
+    4. train all children in M
+    5. Add all children in M to P
+    6. Remove the |M| oldest candidates from P 
+
+2. Tournament Selection
+    select two individuals, kill the less fit one, and the more fit one has a child
+'''
+
+
+DEBUG = True
 
 class EvolutionProgress(SerialData):
     def __init__(self):
@@ -111,6 +160,9 @@ def do_evolution(dir_path: str, num_rounds: int):
         new_candidate.build_model(dataset.images_shape)
         new_candidate.evaluate(dataset)
         new_candidate.save_metadata(dir_path)
+        # new_candidate.save_graph(dir_path)
+        # new_candidate.clear_graph()
+        # new_candidate = MetaModel.load(dir_path, new_candidate.model_name)
         new_candidate.fitness = fitness_calculator.calculate_fitness(new_candidate.metrics)
         history.append(new_candidate)
 
@@ -137,7 +189,12 @@ def do_evolution(dir_path: str, num_rounds: int):
             handle_new_candidate(candidate)
             write_progress()
         for candidate in removed_candidates:
+            print(f'removing model {candidate.model_name}')
+            candidate.save_graph(dir_path)
             candidate.clear_graph()
+            test = MetaModel.load(dir_path, candidate.model_name, True)
+            candidate.clear_graph()
+            print(f'removed model {candidate.model_name}')
 
     # print(history[-1].model_data.final_dense_2.get_weights())
 

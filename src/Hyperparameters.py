@@ -26,10 +26,10 @@ class Hyperparameters(SerialData):
                 'INITIAL_LAYER_DIMS': 1,
                 'USE_POST_BLOCK_REDUCE': True,
                 'TRAIN_EPOCHS': 1,
-                'LEARNING_RATE': 0.001,
+                'LEARNING_RATE': 0.01,
                 'STRATEGY': 'aging',
-                'ROUNDS': 1,
-                'POPULATION_SIZE': 1,
+                'ROUNDS': 10,
+                'POPULATION_SIZE': 3,
                 'STRATEGY_SELECTION_SIZE': 2,
                 'LAYER_EXPANSION_FACTOR': 2,
             }
