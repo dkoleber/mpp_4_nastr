@@ -7,7 +7,7 @@ from Dataset import Dataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv3 import MetaModel
+from Modelv3 import MetaModel, print_vars
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
@@ -62,7 +62,7 @@ rounded curve for accuracy tradeoff
 '''
 
 
-DEBUG = True
+DEBUG = False
 
 class EvolutionProgress(SerialData):
     def __init__(self):
@@ -160,9 +160,7 @@ def do_evolution(dir_path: str, num_rounds: int):
         new_candidate.build_model(dataset.images_shape)
         new_candidate.evaluate(dataset)
         new_candidate.save_metadata(dir_path)
-        # new_candidate.save_graph(dir_path)
-        # new_candidate.clear_graph()
-        # new_candidate = MetaModel.load(dir_path, new_candidate.model_name)
+        new_candidate.save_model(dir_path)
         new_candidate.fitness = fitness_calculator.calculate_fitness(new_candidate.metrics)
         history.append(new_candidate)
 
@@ -180,8 +178,6 @@ def do_evolution(dir_path: str, num_rounds: int):
         population.append(candidate)
         write_progress()
 
-    # print(history[-1].model_data.final_dense_2.get_weights())
-
     for r in range(evolution_rounds_to_conduct):
         print(f'Performing evolution round {r}')
         population, new_candidates, removed_candidates = evolution_strategy.evolve_population(population)
@@ -189,21 +185,12 @@ def do_evolution(dir_path: str, num_rounds: int):
             handle_new_candidate(candidate)
             write_progress()
         for candidate in removed_candidates:
-            print(f'removing model {candidate.model_name}')
-            candidate.save_graph(dir_path)
-            candidate.clear_graph()
-            test = MetaModel.load(dir_path, candidate.model_name, True)
-            candidate.clear_graph()
-            print(f'removed model {candidate.model_name}')
+            # candidate.save_model(dir_path)
+            candidate.clear_model()
 
-    # print(history[-1].model_data.final_dense_2.get_weights())
-
-
-    # tc = MetaModel.load(dir_path, history[-1].model_name, True)
-    # tc.model_name = 'evo_' + str(time.time())
-    # tc.evaluate(dataset)
-    # tc.save_graph(dir_path)
-    # tc.save_metadata(dir_path)
+    # for remaining_candidate in population:
+    #     remaining_candidate.save_model(dir_path)
+    #     remaining_candidate.clear_model()
 
     return history
 
@@ -260,7 +247,7 @@ def plot_history(dir_path: str):
     plt.show()
 
     for candidate in history:
-        candidate.plot_graph(dir_path)
+        candidate.plot_model(dir_path)
 
 
 if __name__ == '__main__':

@@ -27,6 +27,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 tf.compat.v1.disable_eager_execution()
 
 
+def print_vars(vars):
+    for var in vars:
+        print(var)
+
 
 class KerasBuilder:
     def __init__(self):
@@ -144,8 +148,6 @@ class MetaModel(SerialData):
 
         self.keras_model: tf.keras.Model = None
         self.keras_model_data: ModelDataHolder = None
-        self.keras_graph: tf.Graph = None
-        # self.optimizer: tf.keras.optimizers.Optimizer = None
 
     def container_name(self):
         return self.model_name + '_container'
@@ -209,9 +211,7 @@ class MetaModel(SerialData):
                     new_attachment = int(np.random.random() * select_item.attachment_index) #TODO: EXCLUSIVE RANDOM
 
                 if self.keras_model_data is not None:
-                    with self.keras_graph.as_default() as g:
-                        with g.container(self.container_name()):
-                            self.keras_model_data.hidden_state_mutation(self.hyperparameters, cell_index, group_index, item_index, new_attachment, select_item.operation_type)
+                    self.keras_model_data.hidden_state_mutation(self.hyperparameters, cell_index, group_index, item_index, new_attachment, select_item.operation_type)
                 select_item.actual_attachment = new_attachment
                 print(mutation_string + f'hidden state mutation from {previous_attachment} to {select_item.actual_attachment}')
             else:
@@ -222,8 +222,7 @@ class MetaModel(SerialData):
             previous_op = select_item.operation_type
             select_item.operation_type = int(np.random.random() * (OperationType.SEP_1X7_7X1 + 1))
             if previous_op != select_item.operation_type and self.keras_model_data is not None:
-                with self.keras_graph.as_default():
-                    self.keras_model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
+                self.keras_model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
             print(mutation_string + f'operation type mutation from {previous_op} to {select_item.operation_type}')
 
     def serialize(self) -> dict:
@@ -239,56 +238,47 @@ class MetaModel(SerialData):
             item = MetaCell()
             item.deserialize(block)
             self.cells.append(item)
-
         self.model_name = obj['model_name']
-
         self.metrics = Metrics()
         self.metrics.deserialize(obj['metrics'])
-
         self.hyperparameters = Hyperparameters()
         self.hyperparameters.deserialize(obj['hyperparameters'])
 
     def build_model(self, input_shape) -> None:
-        if self.keras_graph is None:
-            self.keras_graph = tf.Graph()
+        if self.keras_model is None:
+            print('creating new model')
+            build_time = time.time()
+            self.keras_model_data = ModelDataHolder(self)
+            model_input = tf.keras.Input(input_shape)
+            self.keras_model = self.keras_model_data.build(model_input)
+            build_time = time.time() - build_time
+            optimizer = tf.keras.optimizers.Adam(self.hyperparameters.parameters['LEARNING_RATE'])
 
-        with self.keras_graph.as_default() as g:
-            with g.container(self.container_name()):
-                optimizer = tf.keras.optimizers.Adam(self.hyperparameters.parameters['LEARNING_RATE'])
+            compile_time = time.time()
+            self.keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+            compile_time = time.time() - compile_time
 
-                build_time = 0.
-                if self.keras_model is None:
-                    build_time = time.time()
-                    self.keras_model_data = ModelDataHolder(self)
-                    model_input = tf.keras.Input(input_shape)
-                    self.keras_model = self.keras_model_data.build(model_input)
-                    build_time = time.time() - build_time
-
-                compile_time = time.time()
-                self.keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
-                compile_time = time.time() - compile_time
-
-                self.metrics.metrics['build_time'] = build_time
-                self.metrics.metrics['compile_time'] = compile_time
+            self.metrics.metrics['build_time'] = build_time
+            self.metrics.metrics['compile_time'] = compile_time
+        else:
+            print('reusing previous keras model')
 
     def evaluate(self, dataset: Dataset) -> None:
-        with self.keras_graph.as_default() as g:
-            with g.container(self.container_name()):
-                BATCH_SIZE = 64
-                sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels), .25)
-                shuffler = ShufflerCallback(dataset)
+        BATCH_SIZE = 64
+        sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels), .25)
+        shuffler = ShufflerCallback(dataset)
 
-                train_time = time.time()
-                self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=self.hyperparameters.parameters['TRAIN_EPOCHS'], callbacks=[sgdr, shuffler])
-                train_time = time.time() - train_time
+        train_time = time.time()
+        self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=self.hyperparameters.parameters['TRAIN_EPOCHS'], callbacks=[sgdr, shuffler])
+        train_time = time.time() - train_time
 
-                inference_time = time.time()
-                evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
-                inference_time = time.time() - inference_time
+        inference_time = time.time()
+        evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
+        inference_time = time.time() - inference_time
 
-                self.metrics.metrics['accuracy'] = float(evaluated_metrics[-1])
-                self.metrics.metrics['average_train_time'] = train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels))
-                self.metrics.metrics['average_inference_time'] = inference_time / float(len(dataset.test_images))
+        self.metrics.metrics['accuracy'] = float(evaluated_metrics[-1])
+        self.metrics.metrics['average_train_time'] = train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels))
+        self.metrics.metrics['average_inference_time'] = inference_time / float(len(dataset.test_images))
 
     def save_metadata(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
@@ -296,7 +286,7 @@ class MetaModel(SerialData):
             os.mkdir(dir_name)
         _write_serial_data_to_json(self, dir_name, self.model_name)
 
-    def plot_graph(self, dir_path):
+    def plot_model(self, dir_path):
         dir_name = os.path.join(dir_path, self.model_name)
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
@@ -307,51 +297,41 @@ class MetaModel(SerialData):
         tf.keras.utils.plot_model(self.keras_model, os.path.join(dir_name, self.model_name + '.png'), expand_nested=True, show_layer_names=False, show_shapes=True)
 
         if not had_keras_model:
-            self.clear_graph()
+            self.clear_model()
 
-    def save_graph(self, dir_path: str = model_save_dir):
-        dir_name = os.path.join(dir_path, self.model_name)
-        if not os.path.exists(dir_name):
-            os.mkdir(dir_name)
-        save_time = time.time()
-        if self.keras_graph is not None:
-            with self.keras_graph.as_default() as g:
-                with g.container(self.container_name()):
-                    if self.keras_model is not None:
-                        _save_keras_model(self.keras_model, dir_name, self.model_name)
-                        print('saved model pb')
-        save_time = time.time() - save_time
-        self.metrics.metrics['save_time'] = save_time
+    def save_model(self, dir_path: str = model_save_dir):
+        if self.keras_model is not None:
+            print(f'saving graph for {self.model_name}')
+            dir_name = os.path.join(dir_path, self.model_name)
+            if not os.path.exists(dir_name):
+                os.mkdir(dir_name)
+            save_time = time.time()
+            _save_keras_model(self.keras_model, dir_name, self.model_name)
+            save_time = time.time() - save_time
+            self.metrics.metrics['save_time'] = save_time
+            print(f'finished saving graph for {self.model_name}')
 
-    def clear_graph(self):
-        print(f'clearing graph for {self.model_name}')
-        del self.keras_model
-
-        if self.keras_graph is not None:
-            tf.keras.backend.clear_session()
-
-        self.keras_model = None
-        self.keras_graph = None
+    def clear_model(self):
+        print(f'clearing model for {self.model_name}')
+        if self.keras_model is not None:
+            del self.keras_model
+            self.keras_model = None
         self.keras_model_data = None
-        self.optimizer = None
+        print(f'finished clearing model for {self.model_name}')
 
     def produce_child(self) -> MetaModel:
         result: MetaModel = MetaModel(self.hyperparameters)
         result.cells = copy.deepcopy(self.cells)
 
-        # result.optimizer = self.optimizer
-        result.keras_graph = self.keras_graph
         result.keras_model = self.keras_model
         result.keras_model_data = self.keras_model_data
 
-        # self.optimizer = None
-        self.keras_graph = None
         self.keras_model = None
         self.keras_model_data = None
 
         return result
 
-    def load_graph(self, dir_path: str = model_save_dir) -> bool:
+    def load_model(self, dir_path: str = model_save_dir) -> bool:
         dir_name = os.path.join(dir_path, self.model_name)
 
         contained_files = os.listdir(dir_name)
@@ -362,17 +342,16 @@ class MetaModel(SerialData):
                 contains_keras_model = True
 
         if contains_keras_model:
-            self.keras_graph = tf.Graph()
-            with self.keras_graph.as_default() as g:
-                with g.container(self.container_name()):
-                    self.keras_model = _load_keras_model(dir_name, self.model_name)
-                    print('loaded model')
+            print(f'loading model for {self.model_name}')
+            self.keras_model = _load_keras_model(dir_name, self.model_name)
+            print(f'finished loading model for {self.model_name}')
             return True
         else:
             return False
 
     @staticmethod
     def load(dir_path: str, name: str, load_graph: bool = False) -> MetaModel:
+        print(f'loading model, load_graph = {load_graph}')
         dir_name = os.path.join(dir_path, name)
         if not os.path.exists(dir_name):
             print('Model does not exist at specified location')
@@ -381,8 +360,8 @@ class MetaModel(SerialData):
         serial_data = _load_serial_data_from_json(dir_name, name)
         result = MetaModel()
         result.deserialize(serial_data)
-
-        result.load_graph(dir_path)
+        if load_graph:
+            result.load_model(dir_path)
 
         return result
 
@@ -394,11 +373,17 @@ class Relu6Layer(tf.keras.layers.Layer):
         return tf.nn.relu6(inputs)
 
 
-class KerasOperation(tf.keras.layers.Layer, ABC):
+class KerasOperation(ABC, tf.keras.layers.Layer):
     def __init__(self, output_dim: int, stride: int):
         super().__init__()
         self.output_dim = output_dim
         self.stride = stride
+    @abstractmethod
+    def call(self, inputs, training=False, mask=None):
+        pass
+    @abstractmethod
+    def rebuild_batchnorm(self):
+        pass
 
 
 class SeperableConvolutionOperation(KerasOperation):
@@ -409,13 +394,21 @@ class SeperableConvolutionOperation(KerasOperation):
         self.normalization_layer = None
         if use_normalization:
             self.normalization_layer = tf.keras.layers.BatchNormalization()
+
     def call(self, inputs, training=False, mask=None):
         layer = inputs
         layer = self.activation_layer(layer)
         layer = self.convolution_layer(layer)
         if self.normalization_layer is not None:
+            # print('using sep conv bn')
             layer = self.normalization_layer(layer)
         return layer
+
+    def rebuild_batchnorm(self):
+        if self.normalization_layer is not None:
+            # print('building sep conv bn')
+            self.normalization_layer = tf.keras.layers.BatchNormalization()
+            # self.normalization_layer.build(self.output_dim)
 
 
 class AveragePoolingOperation(KerasOperation):
@@ -429,6 +422,8 @@ class AveragePoolingOperation(KerasOperation):
         layer = self.pooling_layer(layer)
         layer = self.activation_layer(layer)
         return layer
+    def rebuild_batchnorm(self):
+        return
 
 
 class MaxPoolingOperation(KerasOperation):
@@ -442,6 +437,8 @@ class MaxPoolingOperation(KerasOperation):
         layer = self.pooling_layer(layer)
         layer = self.activation_layer(layer)
         return layer
+    def rebuild_batchnorm(self):
+        return
 
 
 class DoublySeperableConvoutionOperation(KerasOperation):
@@ -453,6 +450,7 @@ class DoublySeperableConvoutionOperation(KerasOperation):
         self.normalization_layer = None
         if use_normalization:
             self.normalization_layer = tf.keras.layers.BatchNormalization()
+
     def call(self, inputs, training=False, mask=None):
         layer = inputs
         layer = self.activation_layer(layer)
@@ -461,6 +459,11 @@ class DoublySeperableConvoutionOperation(KerasOperation):
         if self.normalization_layer is not None:
             layer = self.normalization_layer(layer)
         return layer
+
+    def rebuild_batchnorm(self):
+        if self.normalization_layer is not None:
+            self.normalization_layer = tf.keras.layers.BatchNormalization()
+            # self.normalization_layer.build(self.output_dim)
 
 
 class DimensionalityReductionOperation(KerasOperation):
@@ -474,7 +477,7 @@ class DimensionalityReductionOperation(KerasOperation):
 
         self.single_path_conv = None
 
-        self.normalization = tf.keras.layers.BatchNormalization()
+        self.normalization_layer = tf.keras.layers.BatchNormalization()
 
         if self.stride == 1:
             self.single_path_conv = tf.keras.layers.Conv2D(output_dim, 1, self.stride, 'same')
@@ -485,31 +488,43 @@ class DimensionalityReductionOperation(KerasOperation):
     def call(self, inputs, training=False, mask=None):
         layer = inputs
         layer = self.single_path_conv(layer)
-        layer = self.normalization(layer)
+        layer = self.normalization_layer(layer)
         return layer
+
+    def rebuild_batchnorm(self):
+        if self.normalization_layer is not None:
+            self.normalization_layer = tf.keras.layers.BatchNormalization()
+            # self.normalization_layer.build(self.output_dim)
 
 
 class IdentityOperation(KerasOperation):
     def __init__(self):
         super().__init__(0, 0)
         self.identity_layer = tf.keras.layers.Lambda(lambda x: x)
+
     def call(self, inputs, training=False, mask=None):
         return self.identity_layer(inputs)
 
+    def rebuild_batchnorm(self):
+        return
 
-class DenseOperation(tf.keras.layers.Layer):
+
+class DenseOperation(KerasOperation):
     def __init__(self, output_dim: int, dropout_rate: float = 1):
-        super().__init__()
+        super().__init__(output_dim, 1)
         self.dropout_layer = tf.keras.layers.Dropout(dropout_rate)
         self.dense_layer = tf.keras.layers.Dense(output_dim)
 
     def call(self, inputs, training=False, mask=None):
-        layer  = inputs
+        layer = inputs
         if training:
             layer = self.dropout_layer(layer)
         layer = self.dense_layer(layer)
 
         return layer
+
+    def rebuild_batchnorm(self):
+        return
 
 
 class KerasOperationFactory:
@@ -536,7 +551,7 @@ class KerasOperationFactory:
 class GroupDataHolder:
     def __init__(self, size: int, meta_group: MetaGroup):
 
-        self.ops: List[tf.keras.layers.Layer] = []
+        self.ops = []
         self.attachments: List[int] = []
 
         for op in meta_group.operations:
@@ -640,8 +655,6 @@ class ModelDataHolder:
     def operation_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_operation: int):
         actual_cell_index = 0
 
-        builder = KerasBuilder()
-
         def mutate_layer(index):
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
             self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(new_operation, previous_input_shape[-1])
@@ -661,8 +674,6 @@ class ModelDataHolder:
     def hidden_state_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_hidden_state: int, operation_type: int):
         actual_cell_index = 0
 
-        builder = KerasBuilder()
-
         def mutate_layer(index):
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
             self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(operation_type, previous_input_shape[-1])
@@ -679,6 +690,13 @@ class ModelDataHolder:
                 if cell_index == 1:
                     mutate_layer(actual_cell_index)
                 actual_cell_index += 1
+
+    def rebuild_batchnorm(self, hyperparameters:Hyperparameters):
+        print('rebuilding bn')
+        for cell in self.cells:
+            for group in cell.groups:
+                for op in group.ops:
+                    op.rebuild_batchnorm()
 
     def build(self, inputs):
         previous_output = self.initial_resize(inputs)

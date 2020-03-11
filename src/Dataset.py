@@ -33,8 +33,8 @@ class Dataset:
     def get_cifar10() -> Dataset:
         (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
 
-        images = np.append(train_images, test_images)
-        labels = np.append(train_labels, test_labels)
+        images = np.concatenate((train_images, test_images))
+        labels = np.concatenate((train_labels, test_labels))
 
         images = np.true_divide(images, 127.5)
         images = images - 1.
