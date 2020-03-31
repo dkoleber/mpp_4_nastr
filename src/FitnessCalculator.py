@@ -10,5 +10,5 @@ class FitnessCalculator(ABC):
 
 
 class AccuracyCalculator(FitnessCalculator):
-    def calculate_fitness(self, metrics: Metrics) -> float:
-        return metrics.metrics['accuracy']
+    def calculate_fitness(self, metrics: Metrics, evaluation_index: int = -1) -> float:
+        return metrics.metrics['accuracy'][evaluation_index]

@@ -8,7 +8,6 @@ import tensorflow as tf
 from typing import List
 from enum import IntEnum
 import time
-from tensorflow.keras.models import load_model
 from Dataset import Dataset, ShufflerCallback
 import copy
 from FileManagement import *
@@ -32,58 +31,58 @@ def print_vars(vars):
         print(var)
 
 
-class KerasBuilder:
-    def __init__(self):
-        self.activation_function = tf.nn.relu
-        self.normalization_layer = None
-
-    def get_op(self, op_type: OperationType, output_shape):
-        result = []
-
-        if op_type == OperationType.SEP_3X3:
-            result.append(tf.keras.layers.SeparableConv2D(output_shape, 3, 1, 'same', activation=self.activation_function))
-        elif op_type == OperationType.SEP_5X5:
-            result.append(tf.keras.layers.SeparableConv2D(output_shape, 5, 1, 'same', activation=self.activation_function))
-        elif op_type == OperationType.SEP_7X7:
-            result.append(tf.keras.layers.SeparableConv2D(output_shape, 7, 1, 'same', activation=self.activation_function))
-        elif op_type == OperationType.AVG_3X3:
-            result.append(tf.keras.layers.AveragePooling2D(3, 1, 'same'))
-        elif op_type == OperationType.MAX_3X3:
-            result.append(tf.keras.layers.MaxPool2D(3, 1, 'same'))
-        elif op_type == OperationType.DIL_3X3:
-            result.append(tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', dilation_rate=2, activation=self.activation_function))
-        elif op_type == OperationType.SEP_1X7_7X1:
-            result.append(tf.keras.layers.Conv2D(output_shape, (1, 7), 1, 'same', activation=self.activation_function))
-            result.append(tf.keras.layers.Conv2D(output_shape, (7, 1), 1, 'same', activation=self.activation_function))
-        else:  # OperationType.IDENTITY and everything else
-            result.append(self.dim_change(output_shape))
-
-        return result
-
-    def add(self):
-        return tf.keras.layers.Add()
-
-    def concat(self):
-        return tf.keras.layers.Concatenate(axis=3)
-
-    def dense(self, size, activation=None):
-        layer = tf.keras.layers.Dense(size, activation=activation)
-        return layer
-
-    def flatten(self):
-        return tf.keras.layers.Flatten()
-
-    def identity(self):
-        return tf.keras.layers.Lambda(lambda x: x)
-
-    def dim_change(self, output_shape):
-        layer = tf.keras.layers.Conv2D(output_shape, 1, 1, 'same', activation=self.activation_function)
-        return layer
-
-    def downsize(self, output_shape):
-        layer = tf.keras.layers.Conv2D(output_shape, 3, 2, 'same', activation=self.activation_function)
-
-        return layer
+# class KerasBuilder:
+#     def __init__(self):
+#         self.activation_function = tf.nn.relu
+#         self.normalization_layer = None
+#
+#     def get_op(self, op_type: OperationType, output_shape):
+#         result = []
+#
+#         if op_type == OperationType.SEP_3X3:
+#             result.append(tf.keras.layers.SeparableConv2D(output_shape, 3, 1, 'same', activation=self.activation_function))
+#         elif op_type == OperationType.SEP_5X5:
+#             result.append(tf.keras.layers.SeparableConv2D(output_shape, 5, 1, 'same', activation=self.activation_function))
+#         elif op_type == OperationType.SEP_7X7:
+#             result.append(tf.keras.layers.SeparableConv2D(output_shape, 7, 1, 'same', activation=self.activation_function))
+#         elif op_type == OperationType.AVG_3X3:
+#             result.append(tf.keras.layers.AveragePooling2D(3, 1, 'same'))
+#         elif op_type == OperationType.MAX_3X3:
+#             result.append(tf.keras.layers.MaxPool2D(3, 1, 'same'))
+#         elif op_type == OperationType.DIL_3X3:
+#             result.append(tf.keras.layers.Conv2D(output_shape, 3, 1, 'same', dilation_rate=2, activation=self.activation_function))
+#         elif op_type == OperationType.SEP_1X7_7X1:
+#             result.append(tf.keras.layers.Conv2D(output_shape, (1, 7), 1, 'same', activation=self.activation_function))
+#             result.append(tf.keras.layers.Conv2D(output_shape, (7, 1), 1, 'same', activation=self.activation_function))
+#         else:  # OperationType.IDENTITY and everything else
+#             result.append(self.dim_change(output_shape))
+#
+#         return result
+#
+#     def add(self):
+#         return tf.keras.layers.Add()
+#
+#     def concat(self):
+#         return tf.keras.layers.Concatenate(axis=3)
+#
+#     def dense(self, size, activation=None):
+#         layer = tf.keras.layers.Dense(size, activation=activation)
+#         return layer
+#
+#     def flatten(self):
+#         return tf.keras.layers.Flatten()
+#
+#     def identity(self):
+#         return tf.keras.layers.Lambda(lambda x: x)
+#
+#     def dim_change(self, output_shape):
+#         layer = tf.keras.layers.Conv2D(output_shape, 1, 1, 'same', activation=self.activation_function)
+#         return layer
+#
+#     def downsize(self, output_shape):
+#         layer = tf.keras.layers.Conv2D(output_shape, 3, 2, 'same', activation=self.activation_function)
+#
+#         return layer
 
 
 
@@ -268,17 +267,20 @@ class MetaModel(SerialData):
         sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels), .25)
         shuffler = ShufflerCallback(dataset)
 
-        train_time = time.time()
-        self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=self.hyperparameters.parameters['TRAIN_EPOCHS'], callbacks=[sgdr, shuffler])
-        train_time = time.time() - train_time
+        for iteration in range(self.hyperparameters.parameters['TRAIN_ITERATIONS']):
+            print(f'Starting training iteration {iteration}')
+            train_time = time.time()
+            for epoch_num in range(self.hyperparameters.parameters['TRAIN_EPOCHS']):
+                self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=1, callbacks=[sgdr, shuffler])
+            train_time = time.time() - train_time
 
-        inference_time = time.time()
-        evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
-        inference_time = time.time() - inference_time
+            inference_time = time.time()
+            evaluated_metrics = self.keras_model.evaluate(dataset.test_images, dataset.test_labels)
+            inference_time = time.time() - inference_time
 
-        self.metrics.metrics['accuracy'] = float(evaluated_metrics[-1])
-        self.metrics.metrics['average_train_time'] = train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels))
-        self.metrics.metrics['average_inference_time'] = inference_time / float(len(dataset.test_images))
+            self.metrics.metrics['accuracy'].append(float(evaluated_metrics[-1]))
+            self.metrics.metrics['average_train_time'].append(train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels)))
+            self.metrics.metrics['average_inference_time'].append(inference_time / float(len(dataset.test_images)))
 
     def save_metadata(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
@@ -309,7 +311,7 @@ class MetaModel(SerialData):
             _save_keras_model(self.keras_model, dir_name, self.model_name)
             save_time = time.time() - save_time
             self.metrics.metrics['save_time'] = save_time
-            print(f'finished saving graph for {self.model_name}')
+            print(f'finished saving graph for {self.model_name} after {save_time} seconds')
 
     def clear_model(self):
         print(f'clearing model for {self.model_name}')
@@ -338,13 +340,15 @@ class MetaModel(SerialData):
         contains_keras_model = False
 
         for fl in contained_files:
-            if len(fl) > 3 and fl[-3:] == '.pb':
+            if len(fl) > 5 and fl[-5:] == '_save':
                 contains_keras_model = True
 
         if contains_keras_model:
             print(f'loading model for {self.model_name}')
+            load_time = time.time()
             self.keras_model = _load_keras_model(dir_name, self.model_name)
-            print(f'finished loading model for {self.model_name}')
+            load_time = time.time() - load_time
+            print(f'finished loading model for {self.model_name} in {load_time} seconds')
             return True
         else:
             return False
@@ -625,28 +629,29 @@ class ReductionCellDataHolder(CellDataHolder):
 class ModelDataHolder:
     def __init__(self, meta_model:MetaModel):
 
-        builder = KerasBuilder()
-
         initial_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
 
         self.cells: List[CellDataHolder] = []
 
-        previous_size = initial_size
-        # create blocks based on meta model
-        for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
-            for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                cell = CellDataHolder(previous_size, meta_model.cells[0])
-                self.cells.append(cell)
-                previous_size = cell.output_size
-            if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                cell = ReductionCellDataHolder(previous_size, meta_model.cells[1])
-                self.cells.append(cell)
-                previous_size = cell.output_size
+        if len(meta_model.cells) == 0:
+            print('Error: no cells in meta model. Did you forget to populate it with cells?')
+        else:
+            previous_size = initial_size
+            # create blocks based on meta model
+            for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
+                for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
+                    cell = CellDataHolder(previous_size, meta_model.cells[0])
+                    self.cells.append(cell)
+                    previous_size = cell.output_size
+                if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
+                    cell = ReductionCellDataHolder(previous_size, meta_model.cells[1])
+                    self.cells.append(cell)
+                    previous_size = cell.output_size
 
         self.initial_resize = tf.keras.layers.Conv2D(initial_size, 3, 1, 'same')
         self.initial_norm = tf.keras.layers.BatchNormalization()
 
-        self.final_flatten = builder.flatten()
+        self.final_flatten = tf.keras.layers.Flatten()
         self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
         self.final_activation = Relu6Layer()
         # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
@@ -725,13 +730,14 @@ def _load_serial_data_from_json(dir_path: str, name: str) -> dict:
     return serialized
 
 
-def _load_keras_model(dir_path: str, name: str):
-    model = load_model(os.path.join(dir_path, name + '.pb'))
+def _load_keras_model(dir_path: str, model_name: str):
+    model = tf.keras.models.load_model(os.path.join(dir_path, model_name + '_save'))
     return model
 
 
 def _save_keras_model(keras_model, dir_path: str, model_name: str):
-    keras_model.save(os.path.join(dir_path, model_name + '.pb'))
+    # tf.keras.models.save_model(keras_model, os.path.join(dir_path, model_name + '_save'))
+    keras_model.save(os.path.join(dir_path, model_name + '_save'))
 
 
 if __name__ == '__main__':
