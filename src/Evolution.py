@@ -12,6 +12,8 @@ from FileManagement import *
 from Modelv3 import MetaModel, print_vars
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
+from ModelExperiments import *
+
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -250,209 +252,6 @@ def plot_history(dir_path: str):
         candidate.plot_model(dir_path)
 
 
-def test_accuracy_at_different_train_amounts():
-    dir_path = os.path.join(evo_dir, 'test_accuracy_epochs')
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    hyperparameters = Hyperparameters()
-    hyperparameters.parameters['POPULATION_SIZE'] = 16
-    hyperparameters.parameters['ROUNDS'] = 0
-    hyperparameters.parameters['TRAIN_EPOCHS'] = 1
-    hyperparameters.parameters['TRAIN_ITERATIONS'] = 16
-
-    dataset = Dataset.get_cifar10()
-    # dataset = Dataset.get_build_set()
-
-    num_already_done = len(os.listdir(dir_path))
-
-    population = []
-    for round_num in range(hyperparameters.parameters['POPULATION_SIZE'] - num_already_done):
-        new_candidate = MetaModel(hyperparameters)
-        new_candidate.populate_with_nasnet_metacells()
-        new_candidate.model_name = 'evo_' + str(time.time())  # this is redone here since all models are initialized within microseconds of eachother for init population
-        new_candidate.build_model(dataset.images_shape)
-        new_candidate.evaluate(dataset)
-        new_candidate.save_model(dir_path)
-        # new_candidate.metrics.metrics['accuracy'].extend([x + round_num for x in range(4)])
-        new_candidate.save_metadata(dir_path)
-        population.append(new_candidate)
-        new_candidate.clear_model()
-
-
-def test_accuracy_at_different_train_amounts_2():
-    dir_path = os.path.join(evo_dir, 'test_accuracy_epochs')
-    sims = [x for x in os.listdir(dir_path) if '.png' not in x]
-    full_sims = [x for x in sims if 'small' not in x]
-    small_sims = [x for x in sims if 'small' in x]
-    todo_small_sims = full_sims[len(small_sims):]
-
-    print(f'{len(todo_small_sims)} remaining small sims to conduct')
-
-    population = [MetaModel.load(dir_path, x, False) for x in todo_small_sims]
-
-    adjusted_normal_stacks = 3
-    adjusted_layer_stacks = 2
-
-    dataset = Dataset.get_cifar10()
-
-    for x in population:
-        x.hyperparameters.parameters['NORMAL_CELL_N'] = adjusted_normal_stacks
-        x.hyperparameters.parameters['CELL_LAYERS'] = adjusted_layer_stacks
-        x.metrics.metrics['accuracy'] = []
-        x.metrics.metrics['average_train_time'] = []
-        x.metrics.metrics['average_inference_time'] = []
-        x.model_name = 'evo_small_' + str(time.time())
-        x.build_model(dataset.images_shape)
-        x.evaluate(dataset)
-        x.save_model(dir_path)
-        x.save_metadata(dir_path)
-        x.clear_model()
-
-
-def test_accuracy_at_different_train_amounts_analyze():
-    population = []
-
-    dir_path = f'{evo_dir}\\test_accuracy_epochs'
-    folders = [x for x in os.listdir(dir_path) if '.png' not in x and 'small' not in x]
-    for candidate in folders:
-        loaded = MetaModel.load(dir_path, candidate, False)
-        population.append(loaded)
-
-    x = []
-    y = []
-    c = []
-
-    x_multi = []
-    y_multi = []
-    c_multi = []
-
-    fitnesses = [[] for i in range(len(population[0].metrics.metrics['accuracy']))]
-
-    color = 0
-    for index, candidate in enumerate(population):
-        x_temp = []
-        y_temp = []
-        for round in range(len(candidate.metrics.metrics['accuracy'])):
-            fitness = candidate.metrics.metrics['accuracy'][round]
-            x.append(index)
-            y.append(fitness)
-            c.append(color + round)
-
-            x_temp.append(round)
-            y_temp.append(fitness)
-
-            fitnesses[round].append(fitness)
-        # print(len(candidate.metrics.metrics['accuracy']))
-
-        x_multi.append(x_temp)
-        y_multi.append(y_temp)
-        color = (1. / len(population)) * float(index)
-        c_multi.append((color, color, color))
-
-    final_fitness_coorelation = [np.corrcoef(i, fitnesses[-1])[0][1] for i in fitnesses]
-    initial_fitness_coorelation = [np.corrcoef(i, fitnesses[0])[0][1] for i in fitnesses]
-
-    area = np.pi * 8
-
-    num_plots = 4
-
-    # plt.figure(dpi=80)
-
-    fig, axes = plt.subplots(nrows=num_plots, ncols=1)
-
-
-    plt.subplot(num_plots, 1, 1)
-    plt.scatter(x, y, c=c, s=area, alpha=0.5)
-    plt.title('candidate vs fitness')
-    plt.xlabel('candidate')
-    plt.ylabel('fitness')
-
-    plt.subplot(num_plots, 1, 2)
-    for i in range(len(x_multi)):
-        plt.plot(x_multi[i], y_multi[i], c=c_multi[i], alpha=0.5)
-
-    plt.title('epoch vs fitness')
-    plt.xlabel('epoch')
-    plt.ylabel('fitness')
-
-    plt.subplot(num_plots, 1, 3)
-    plt.plot([i for i in range(len(x_multi))], final_fitness_coorelation, alpha=0.5)
-    plt.title('accuracy at epoch coorelation with final accuracy')
-    plt.xlabel('epoch')
-    plt.ylabel('coorelation coefficient')
-
-    plt.subplot(num_plots, 1, 4)
-    plt.plot([i for i in range(len(x_multi))], initial_fitness_coorelation, alpha=0.5)
-    plt.title('accuracy at epoch coorelation with initial accuracy')
-    plt.xlabel('epoch')
-    plt.ylabel('coorelation coefficient')
-
-    # fig.tight_layout()
-    # plt.subplots_adjust(hspace=3.0)
-
-    plt.savefig(os.path.join(dir_path, 'figure.png'))
-    # plt.show()
-
-
-def test_accuracy_at_different_train_amounts_analyze_2():
-    large_population_models = []
-    small_population_models = []
-
-    dir_path = f'{evo_dir}\\test_accuracy_epochs'
-    folders = [x for x in os.listdir(dir_path) if '.png' not in x]
-    for candidate in folders:
-        loaded = MetaModel.load(dir_path, candidate, False)
-        if 'small' in candidate:
-            small_population_models.append(loaded)
-        else:
-            large_population_models.append(loaded)
-
-
-
-
-    large_accuracies = [x.metrics.metrics['accuracy'] for x in large_population_models]
-    small_accuracies = [x.metrics.metrics['accuracy'] for x in small_population_models]
-
-    num_iterations = len(large_accuracies[0])
-    num_models = len(large_population_models)
-
-    z_large_accuracies = stats.zscore(large_accuracies, axis=0)
-    z_small_accuracies = stats.zscore(small_accuracies, axis=0)
-    final_z_large = [x[-1] for x in z_large_accuracies]
-    final_z_small = [x[-1] for x in z_small_accuracies]
-
-    indexes = np.array([x for x in range(num_models)])
-    accuracy_correlation = [np.corrcoef(z_large_accuracies[i], z_small_accuracies[i])[0][1] for i in range(num_models)]
-
-    iterations = np.array([x for x in range(num_iterations)])
-    se_at_iterations = np.power(np.subtract(z_large_accuracies, z_small_accuracies),2)
-    mse_at_iterations = np.average(se_at_iterations, axis=0)
-    vals = np.polyfit(iterations, mse_at_iterations, 1)
-
-    area = np.pi * 8
-    num_plots = 2
-    plt.subplot(num_plots, 1, 1)
-    plt.scatter(indexes, accuracy_correlation, c=indexes, s=area, alpha=0.5)
-    plt.title('candidate vs fitness')
-    plt.xlabel('candidate')
-    plt.ylabel('small vs large accuracy correlation')
-
-    plt.subplot(num_plots, 1, 2)
-    plt.scatter(iterations, mse_at_iterations, c=iterations, s=area, alpha=0.5)
-    plt.plot(iterations, iterations * vals[0] + vals[1])
-    plt.title('iteration vs mse zvals at iterations')
-    plt.xlabel('iteration')
-    plt.ylabel('mse zval')
-
-    plt.savefig(os.path.join(dir_path, 'small_vs_large.png'))
-
-    print(f'accuracy correlation mean across candidates: {np.average(accuracy_correlation)}')
-    print(f'accuracy correlation stdev across candidates: {np.std(accuracy_correlation)}')
-    print(f'accuracy correlation max across candidates: {max(accuracy_correlation)}')
-    print(f'accuracy correlation min across candidates: {min(accuracy_correlation)}')
-    print(f'final accuracy correlation among all candidates: {np.corrcoef(final_z_large, final_z_small)[0][1]}')
-    print(f'correlation between iteration and mse zval: {np.corrcoef(iterations, mse_at_iterations)[0][1]}')
-
 
 
 if __name__ == '__main__':
@@ -502,6 +301,12 @@ if __name__ == '__main__':
 
             if sys.argv[arg_pos] == 'test2':
                 test_accuracy_at_different_train_amounts_2()
+
+            if sys.argv[arg_pos] == 'test3':
+                test_model_mutation()
+
+            if sys.argv[arg_pos] == 'test4':
+                test_load_model()
 
             if sys.argv[arg_pos] == 'test_measure':
                 test_accuracy_at_different_train_amounts_analyze()

@@ -31,6 +31,7 @@ class AgingStrategy(EvolutionStrategy):
         print(f'producing child of model {best_candidate.model_name}')
         new_candidate = best_candidate.produce_child()
         new_candidate.mutate()
+        new_candidate.parent_model_name = best_candidate.model_name
         population.append(new_candidate)
         return population[1:], [new_candidate], [population[0]]
 

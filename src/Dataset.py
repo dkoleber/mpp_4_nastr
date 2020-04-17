@@ -49,6 +49,23 @@ class Dataset:
         return Dataset(images, labels, .7, .2, .1)
 
 
+    @staticmethod
+    def get_cifar10_reduced() -> Dataset:
+        (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
+
+
+        images = np.concatenate((train_images, test_images))
+        labels = np.concatenate((train_labels, test_labels))
+
+        images = images[:4000]
+        labels = labels[:4000]
+
+
+        images = np.true_divide(images, 127.5)
+        images = images - 1.
+
+        return Dataset(images, labels, .7, .2, .1)
+
 class ShufflerCallback(tf.keras.callbacks.Callback):
     def __init__(self, dataset: Dataset):
         super().__init__()

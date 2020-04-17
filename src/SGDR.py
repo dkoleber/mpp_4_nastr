@@ -2,7 +2,7 @@ import  tensorflow as tf
 import numpy as np
 
 class SGDR(tf.keras.callbacks.Callback):
-    def __init__(self, minimum_learning_rate, maximum_learning_rate, batch_size, epoch_size, epochs_per_restart: float = .5, learning_rate_decay: float = 1., restart_period_decay: float = 1.):
+    def __init__(self, minimum_learning_rate, maximum_learning_rate, batch_size, epoch_size, epochs_per_restart: float = .25, learning_rate_decay: float = 1., restart_period_decay: float = 1.):
         super().__init__()
 
         self.initial_minimum_learning_rate = minimum_learning_rate

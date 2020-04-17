@@ -142,6 +142,7 @@ class MetaModel(SerialData):
         self.hyperparameters = hyperparameters
 
         self.model_name = 'evo_' + str(time.time())
+        self.parent_model_name = ''
         self.metrics = Metrics()
         self.fitness = 0.
 
@@ -198,7 +199,9 @@ class MetaModel(SerialData):
         if select_mutation < self.hyperparameters.parameters['IDENTITY_THRESHOLD']:
             # identity mutation
             print(mutation_string + 'identity mutation')
-        elif self.hyperparameters.parameters['IDENTITY_THRESHOLD'] < select_mutation < other_mutation_threshold:
+            return
+
+        if self.hyperparameters.parameters['IDENTITY_THRESHOLD'] < select_mutation < other_mutation_threshold:
             # hidden state mutation = change inputs
 
             # don't try to change the state of the first group since it need to point to the first two inputs of the block
@@ -224,12 +227,19 @@ class MetaModel(SerialData):
                 self.keras_model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
             print(mutation_string + f'operation type mutation from {previous_op} to {select_item.operation_type}')
 
+
+        initial_layer_shape = self.keras_model.layers[0].get_input_shape_at(0)[1:]
+
+        self.keras_model = None
+        self.build_model(initial_layer_shape, False)
+
     def serialize(self) -> dict:
         return {
             'blocks': [x.serialize() for x in self.cells],
             'metrics': self.metrics.serialize(),
             'hyperparameters': self.hyperparameters.serialize(),
-            'model_name': self.model_name
+            'model_name': self.model_name,
+            'parent_model_name': self.parent_model_name
         }
 
     def deserialize(self, obj: dict) -> None:
@@ -242,12 +252,18 @@ class MetaModel(SerialData):
         self.metrics.deserialize(obj['metrics'])
         self.hyperparameters = Hyperparameters()
         self.hyperparameters.deserialize(obj['hyperparameters'])
+        if 'parent_model_name' in obj:
+            self.parent_model_name = obj['parent_model_name']
+        else:
+            self.parent_model_name = ''
 
-    def build_model(self, input_shape) -> None:
+    def build_model(self, input_shape, use_new_weights: bool = True) -> None:
         if self.keras_model is None:
-            print('creating new model')
+            print('creating model')
             build_time = time.time()
-            self.keras_model_data = ModelDataHolder(self)
+            if self.keras_model_data is None or use_new_weights:
+                print('using new data for model')
+                self.keras_model_data = ModelDataHolder(self)
             model_input = tf.keras.Input(input_shape)
             self.keras_model = self.keras_model_data.build(model_input)
             build_time = time.time() - build_time
@@ -262,9 +278,13 @@ class MetaModel(SerialData):
         else:
             print('reusing previous keras model')
 
+
     def evaluate(self, dataset: Dataset) -> None:
         BATCH_SIZE = 64
-        sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels), .25)
+        sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels),
+                    self.hyperparameters.parameters['SGDR_EPOCHS_PER_RESTART'],
+                    self.hyperparameters.parameters['SGDR_LR_DECAY'],
+                    self.hyperparameters.parameters['SGDR_PERIOD_DECAY'])
         shuffler = ShufflerCallback(dataset)
 
         for iteration in range(self.hyperparameters.parameters['TRAIN_ITERATIONS']):
@@ -371,31 +391,45 @@ class MetaModel(SerialData):
 
 
 class Relu6Layer(tf.keras.layers.Layer):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
     def call(self, inputs, training=False, mask=None):
         return tf.nn.relu6(inputs)
 
 
 class KerasOperation(ABC, tf.keras.layers.Layer):
-    def __init__(self, output_dim: int, stride: int):
-        super().__init__()
+    def __init__(self, output_dim: int, stride: int, **kwargs):
+        super().__init__(**kwargs)
         self.output_dim = output_dim
         self.stride = stride
+
     @abstractmethod
     def call(self, inputs, training=False, mask=None):
         pass
+
     @abstractmethod
     def rebuild_batchnorm(self):
         pass
 
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'output_dim': self.output_dim,
+            'stride': self.stride
+        })
+        return config
+
 
 class SeperableConvolutionOperation(KerasOperation):
-    def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, dilation_rate: int = 1):
-        super().__init__(output_dim, stride)
+    def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, dilation_rate: int = 1, **kwargs):
+        super().__init__(output_dim, stride, **kwargs)
         self.activation_layer = Relu6Layer()
         self.convolution_layer = tf.keras.layers.SeparableConv2D(output_dim, kernel_size, self.stride, 'same', dilation_rate=dilation_rate)
         self.normalization_layer = None
+        self.use_normalization = use_normalization
+        self.dilation_rate = dilation_rate
+        self.kernel_size = kernel_size
+
         if use_normalization:
             self.normalization_layer = tf.keras.layers.BatchNormalization()
 
@@ -414,10 +448,21 @@ class SeperableConvolutionOperation(KerasOperation):
             self.normalization_layer = tf.keras.layers.BatchNormalization()
             # self.normalization_layer.build(self.output_dim)
 
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'kernel_size': self.kernel_size,
+            'use_normalization': self.use_normalization,
+            'dilation_rate': self.dilation_rate,
+            'output_dim': self.output_dim,
+            'stride': self.stride
+        })
+        return config
+
 
 class AveragePoolingOperation(KerasOperation):
-    def __init__(self, output_dim: int, stride: int, pool_size: int):
-        super().__init__(output_dim, stride)
+    def __init__(self, output_dim: int, stride: int, pool_size: int, **kwargs):
+        super().__init__(output_dim, stride, **kwargs)
         self.pool_size = pool_size
         self.pooling_layer = tf.keras.layers.AveragePooling2D(pool_size, strides=stride, padding='same')
         self.activation_layer = Relu6Layer()
@@ -428,11 +473,17 @@ class AveragePoolingOperation(KerasOperation):
         return layer
     def rebuild_batchnorm(self):
         return
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'pool_size': self.pool_size
+        })
+        return config
 
 
 class MaxPoolingOperation(KerasOperation):
-    def __init__(self, output_dim: int, stride: int, pool_size: int):
-        super().__init__(output_dim, stride)
+    def __init__(self, output_dim: int, stride: int, pool_size: int, **kwargs):
+        super().__init__(output_dim, stride, **kwargs)
         self.pool_size = pool_size
         self.pooling_layer = tf.keras.layers.MaxPool2D(pool_size, strides=stride, padding='same')
         self.activation_layer = Relu6Layer()
@@ -443,11 +494,17 @@ class MaxPoolingOperation(KerasOperation):
         return layer
     def rebuild_batchnorm(self):
         return
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'pool_size': self.pool_size
+        })
+        return config
 
 
 class DoublySeperableConvoutionOperation(KerasOperation):
-    def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True):
-        super().__init__(output_dim, stride)
+    def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, **kwargs):
+        super().__init__(output_dim, stride, **kwargs)
         self.activation_layer = Relu6Layer()
         self.convolution_layer_1 = tf.keras.layers.SeparableConv2D(output_dim, (kernel_size, 1), self.stride, 'same')
         self.convolution_layer_2 = tf.keras.layers.SeparableConv2D(output_dim, (1, kernel_size), self.stride, 'same')
@@ -469,10 +526,18 @@ class DoublySeperableConvoutionOperation(KerasOperation):
             self.normalization_layer = tf.keras.layers.BatchNormalization()
             # self.normalization_layer.build(self.output_dim)
 
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'kernel_size': self.kernel_size,
+            'use_normalization': self.use_normalization
+        })
+        return config
+
 
 class DimensionalityReductionOperation(KerasOperation):
-    def __init__(self, output_dim: int, stride: int = 1):
-        super().__init__(output_dim, stride)
+    def __init__(self, output_dim: int, stride: int = 1, **kwargs):
+        super().__init__(output_dim, stride, **kwargs)
         self.path_1_avg = None
         self.path_1_conv = None
         self.path_2_pad = None
@@ -502,8 +567,11 @@ class DimensionalityReductionOperation(KerasOperation):
 
 
 class IdentityOperation(KerasOperation):
-    def __init__(self):
-        super().__init__(0, 0)
+    def __init__(self, **kwargs):
+        if len(kwargs) > 0:
+            super().__init__(**kwargs)
+        else:
+            super().__init__(0, 0)
         self.identity_layer = tf.keras.layers.Lambda(lambda x: x)
 
     def call(self, inputs, training=False, mask=None):
@@ -514,10 +582,14 @@ class IdentityOperation(KerasOperation):
 
 
 class DenseOperation(KerasOperation):
-    def __init__(self, output_dim: int, dropout_rate: float = 1):
-        super().__init__(output_dim, 1)
+    def __init__(self, output_dim: int, dropout_rate: float = 1, **kwargs):
+        if len(kwargs) > 0:
+            super().__init__(output_dim, **kwargs)
+        else:
+            super().__init__(output_dim, 1, **kwargs)
         self.dropout_layer = tf.keras.layers.Dropout(dropout_rate)
         self.dense_layer = tf.keras.layers.Dense(output_dim)
+        self.dropout_rate = dropout_rate
 
     def call(self, inputs, training=False, mask=None):
         layer = inputs
@@ -530,16 +602,23 @@ class DenseOperation(KerasOperation):
     def rebuild_batchnorm(self):
         return
 
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'dropout_rate': self.dropout_rate
+        })
+        return config
+
 
 class KerasOperationFactory:
     @staticmethod
     def get_operation(op_type: int, output_dim: int, stride: int = 1):
         if op_type == OperationType.SEP_3X3:
-            return SeperableConvolutionOperation(output_dim, stride, 3)
+            return SeperableConvolutionOperation(output_dim, stride, 3, True, 1)
         elif op_type == OperationType.SEP_5X5:
-            return SeperableConvolutionOperation(output_dim, stride, 5)
+            return SeperableConvolutionOperation(output_dim, stride, 5, True, 1)
         elif op_type == OperationType.SEP_7X7:
-            return SeperableConvolutionOperation(output_dim, stride, 7)
+            return SeperableConvolutionOperation(output_dim, stride, 7, True, 1)
         elif op_type == OperationType.AVG_3X3:
             return AveragePoolingOperation(output_dim, stride, 3)
         elif op_type == OperationType.MAX_3X3:
