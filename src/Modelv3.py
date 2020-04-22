@@ -278,7 +278,6 @@ class MetaModel(SerialData):
         else:
             print('reusing previous keras model')
 
-
     def evaluate(self, dataset: Dataset) -> None:
         BATCH_SIZE = 64
         sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels),
@@ -360,17 +359,19 @@ class MetaModel(SerialData):
         contains_keras_model = False
 
         for fl in contained_files:
-            if len(fl) > 5 and fl[-5:] == '_save':
+            if len(fl) > 3 and fl[-3:] == '.h5':
                 contains_keras_model = True
 
         if contains_keras_model:
             print(f'loading model for {self.model_name}')
             load_time = time.time()
             self.keras_model = _load_keras_model(dir_name, self.model_name)
+            self.keras_model_data = ModelDataHolder(self, self.keras_model)
             load_time = time.time() - load_time
             print(f'finished loading model for {self.model_name} in {load_time} seconds')
             return True
         else:
+            print(f'could not find keras model for {self.model_name}')
             return False
 
     @staticmethod
@@ -419,6 +420,10 @@ class KerasOperation(ABC, tf.keras.layers.Layer):
         })
         return config
 
+    @abstractmethod
+    def add_self_to_parser_counts(self, parser):
+        pass
+
 
 class SeperableConvolutionOperation(KerasOperation):
     def __init__(self, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, dilation_rate: int = 1, **kwargs):
@@ -459,6 +464,11 @@ class SeperableConvolutionOperation(KerasOperation):
         })
         return config
 
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('relu6_layer')
+        parser.get_next_name('seperable_conv2d')
+        parser.get_next_name('batch_normalization')
+
 
 class AveragePoolingOperation(KerasOperation):
     def __init__(self, output_dim: int, stride: int, pool_size: int, **kwargs):
@@ -479,7 +489,9 @@ class AveragePoolingOperation(KerasOperation):
             'pool_size': self.pool_size
         })
         return config
-
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('relu6_layer')
+        parser.get_next_name('average_pooling2d')
 
 class MaxPoolingOperation(KerasOperation):
     def __init__(self, output_dim: int, stride: int, pool_size: int, **kwargs):
@@ -500,6 +512,9 @@ class MaxPoolingOperation(KerasOperation):
             'pool_size': self.pool_size
         })
         return config
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('relu6_layer')
+        parser.get_next_name('max_pool2d')
 
 
 class DoublySeperableConvoutionOperation(KerasOperation):
@@ -534,6 +549,11 @@ class DoublySeperableConvoutionOperation(KerasOperation):
         })
         return config
 
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('seperable_conv2d')
+        parser.get_next_name('seperable_conv2d')
+        parser.get_next_name('relu6_layer')
+        parser.get_next_name('batch_normalization')
 
 class DimensionalityReductionOperation(KerasOperation):
     def __init__(self, output_dim: int, stride: int = 1, **kwargs):
@@ -565,6 +585,10 @@ class DimensionalityReductionOperation(KerasOperation):
             self.normalization_layer = tf.keras.layers.BatchNormalization()
             # self.normalization_layer.build(self.output_dim)
 
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('conv2d')
+        parser.get_next_name('batch_normalization')
+
 
 class IdentityOperation(KerasOperation):
     def __init__(self, **kwargs):
@@ -579,6 +603,9 @@ class IdentityOperation(KerasOperation):
 
     def rebuild_batchnorm(self):
         return
+
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('lambda')
 
 
 class DenseOperation(KerasOperation):
@@ -609,6 +636,10 @@ class DenseOperation(KerasOperation):
         })
         return config
 
+    def add_self_to_parser_counts(self, parser):
+        parser.get_next_name('dropout')
+        parser.get_next_name('dense')
+
 
 class KerasOperationFactory:
     @staticmethod
@@ -632,16 +663,27 @@ class KerasOperationFactory:
 
 
 class GroupDataHolder:
-    def __init__(self, size: int, meta_group: MetaGroup):
+    def __init__(self, size: int, meta_group: MetaGroup, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
 
         self.ops = []
         self.attachments: List[int] = []
 
-        for op in meta_group.operations:
-            self.ops.append(KerasOperationFactory.get_operation(op.operation_type, size))
-            self.attachments.append(op.actual_attachment)
+        if keras_model is None:
 
-        self.addition_layer = tf.keras.layers.Add()
+            for op in meta_group.operations:
+                self.ops.append(KerasOperationFactory.get_operation(op.operation_type, size))
+                self.attachments.append(op.actual_attachment)
+
+            self.addition_layer = tf.keras.layers.Add()
+
+        else:
+
+            for op in meta_group.operations:
+                self.ops.append(keras_model.get_layer(parser.get_next_name_for_op(op.operation_type)))
+
+                self.attachments.append(op.actual_attachment)
+
+            self.addition_layer = keras_model.get_layer(parser.get_next_name('add'))
 
     def build(self, inputs):
         results = []
@@ -652,23 +694,34 @@ class GroupDataHolder:
 
 
 class CellDataHolder:
-    def __init__(self, input_dim: int, meta_cell: MetaCell):
-
+    def __init__(self, input_dim: int, meta_cell: MetaCell, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
         self.groups: List[GroupDataHolder] = []
-
-        used_group_indexes: List[int] = [0, 1]  # last cell, cell before that
-        for group in meta_cell.groups:
-            self.groups.append(GroupDataHolder(input_dim, group))
-            for op in group.operations:
-                used_group_indexes.append(op.actual_attachment)
-
-        self.unused_group_indexes: List[int] = [x for x in range(len(meta_cell.groups) + 2) if x not in used_group_indexes]
-        # self.output_size = input_dim * len(self.unused_group_indexes)
         self.output_size = input_dim
 
-        self.post_concat = tf.keras.layers.Concatenate(axis=3)
-        self.post_reduce = DimensionalityReductionOperation(input_dim)
+        used_group_indexes: List[int] = [0, 1]  # last cell, cell before that
 
+        if keras_model is None:
+            for group in meta_cell.groups:
+                self.groups.append(GroupDataHolder(input_dim, group))
+                for op in group.operations:
+                    used_group_indexes.append(op.actual_attachment)
+
+            self.post_concat = tf.keras.layers.Concatenate(axis=3)
+            self.post_reduce = DimensionalityReductionOperation(input_dim)
+
+        else:
+
+            for group in meta_cell.groups:
+                self.groups.append(GroupDataHolder(input_dim, group, parser, keras_model))
+                for op in group.operations:
+                    used_group_indexes.append(op.actual_attachment)
+
+            self.post_concat = keras_model.get_layer(parser.get_next_name('concatenate'))
+
+            self.post_reduce = keras_model.get_layer(parser.get_next_name('dimensionality_reduction_operation'))
+            self.post_reduce.add_self_to_parser_counts(parser)
+
+        self.unused_group_indexes: List[int] = [x for x in range(len(meta_cell.groups) + 2) if x not in used_group_indexes]
 
     def build(self, inputs):
         available_inputs = [x for x in inputs]
@@ -692,11 +745,17 @@ class CellDataHolder:
 
 
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, input_dim: int, meta_cell: MetaCell):
-        super().__init__(input_dim, meta_cell)
+    def __init__(self, input_dim: int, meta_cell: MetaCell, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
+        super().__init__(input_dim, meta_cell, parser, keras_model)
 
-        self.post_reduce_current = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
-        self.post_reduce_previous = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
+        if keras_model is None:
+            self.post_reduce_current = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
+            self.post_reduce_previous = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
+
+        else:
+            self.post_reduce_current = keras_model.get_layer(parser.get_next_name('conv2d'))
+            self.post_reduce_previous = keras_model.get_layer(parser.get_next_name('conv2d'))
+
 
     def build(self, inputs):
         [current_result, previous_cell_result] = super().build(inputs)
@@ -705,36 +764,132 @@ class ReductionCellDataHolder(CellDataHolder):
         return [downsize_current, downsize_previous]
 
 
-class ModelDataHolder:
-    def __init__(self, meta_model:MetaModel):
+class ModelParsingHelper:
+    def __init__(self):
+        self.counts = {
+            'identity_operation': 0,
+            'seperable_convolution_operation': 0,
+            'average_pooling_operation': 0,
+            'max_pooling_operation': 0,
+            'doubly_seperable_convolution_operation': 0,
+            'batch_normalization': 0,
+            'add': 0,
+            'conv2d': 0,
+            'concatenate': 0,
+            'dimensionality_reduction_operation': 0,
+            'relu6_layer': 0,
+            'lambda': 0,
+            'dense_operation': 0
+        }
 
-        initial_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
+    @staticmethod
+    def get_op_name(op:OperationType):
+        vals = {
+            OperationType.IDENTITY: 'identity_operation',
+            OperationType.SEP_3X3: 'seperable_convolution_operation',
+            OperationType.SEP_5X5: 'seperable_convolution_operation',
+            OperationType.SEP_7X7: 'seperable_convolution_operation',
+            OperationType.DIL_3X3: 'seperable_convolution_operation',
+            OperationType.AVG_3X3: 'average_pooling_operation',
+            OperationType.MAX_3X3: 'max_pooling_operation',
+            OperationType.SEP_1X7_7X1: 'doubly_seperable_convolution_operation'
+        }
+        return vals[op]
 
-        self.cells: List[CellDataHolder] = []
-
-        if len(meta_model.cells) == 0:
-            print('Error: no cells in meta model. Did you forget to populate it with cells?')
+    @staticmethod
+    def _get_layer_name(name, number):
+        if number == 0:
+            return name
         else:
+            return f'{name}_{number}'
+
+    def get_next_name(self, name):
+        if name not in self.counts:
+            return name
+        else:
+            result = ModelParsingHelper._get_layer_name(name, self.counts[name])
+            self.counts[name] += 1
+            return result
+
+    def get_next_name_for_op(self, op):
+        layer = KerasOperationFactory.get_operation(op, 1)
+        layer.add_self_to_parser_counts(self)
+        return self.get_next_name(ModelParsingHelper.get_op_name(op))
+
+
+class ModelDataHolder:
+    def __init__(self, meta_model:MetaModel, keras_model:tf.keras.models.Model = None):
+
+        if keras_model is None:
+            initial_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
+
+            self.cells: List[CellDataHolder] = []
+
+            if len(meta_model.cells) == 0:
+                print('Error: no cells in meta model. Did you forget to populate it with cells?')
+            else:
+                previous_size = initial_size
+                # create blocks based on meta model
+                for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
+                    for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
+                        cell = CellDataHolder(previous_size, meta_model.cells[0])
+                        self.cells.append(cell)
+                        previous_size = cell.output_size
+                    if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
+                        cell = ReductionCellDataHolder(previous_size, meta_model.cells[1])
+                        self.cells.append(cell)
+                        previous_size = cell.output_size
+
+            self.initial_resize = tf.keras.layers.Conv2D(initial_size, 3, 1, 'same')
+            self.initial_norm = tf.keras.layers.BatchNormalization()
+
+            self.final_flatten = tf.keras.layers.Flatten()
+            self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
+            self.final_activation = Relu6Layer()
+            # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
+            self.final_dense = DenseOperation(10, .5)
+        else:
+            print(keras_model.summary(line_length=300))
+            initial_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
+
+            self.cells: List[CellDataHolder] = []
             previous_size = initial_size
-            # create blocks based on meta model
+
+            parser = ModelParsingHelper()
+
             for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
                 for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                    cell = CellDataHolder(previous_size, meta_model.cells[0])
+                    cell = CellDataHolder(previous_size, meta_model.cells[0], parser, keras_model)
                     self.cells.append(cell)
                     previous_size = cell.output_size
                 if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                    cell = ReductionCellDataHolder(previous_size, meta_model.cells[1])
+                    cell = ReductionCellDataHolder(previous_size, meta_model.cells[1], parser, keras_model)
                     self.cells.append(cell)
                     previous_size = cell.output_size
 
-        self.initial_resize = tf.keras.layers.Conv2D(initial_size, 3, 1, 'same')
-        self.initial_norm = tf.keras.layers.BatchNormalization()
 
-        self.final_flatten = tf.keras.layers.Flatten()
-        self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
-        self.final_activation = Relu6Layer()
-        # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
-        self.final_dense = DenseOperation(10, .5)
+            self.initial_resize = keras_model.get_layer(parser.get_next_name('conv2d'))
+            self.initial_norm = keras_model.get_layer(parser.get_next_name('batch_normalization'))
+            self.final_flatten = tf.keras.layers.Flatten()
+            self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
+            self.final_activation = keras_model.get_layer(parser.get_next_name('relu6_layer'))
+            self.final_dense = keras_model.get_layer(parser.get_next_name('dense_operation'))
+
+
+
+
+    def get_hashes(self):
+        hash_list = []
+        for index, cell in enumerate(self.cells):
+            combined = ''
+            for group in cell.groups:
+                for operation in group.ops:
+                    # print(operation.get_weights())
+                    combined += str(hash(str(operation.get_weights())))
+                for attachment in group.ops:
+                    combined += str(hash(attachment))
+            hash_list.append(f'{index}: {hash(combined)}')
+        return hash_list
 
     def operation_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_operation: int):
         actual_cell_index = 0
@@ -810,13 +965,25 @@ def _load_serial_data_from_json(dir_path: str, name: str) -> dict:
 
 
 def _load_keras_model(dir_path: str, model_name: str):
-    model = tf.keras.models.load_model(os.path.join(dir_path, model_name + '_save'))
+    custom_objects = {
+        'SeperableConvolutionOperation': SeperableConvolutionOperation,
+        'AveragePoolingOperation': AveragePoolingOperation,
+        'MaxPoolingOperation': MaxPoolingOperation,
+        'DoublySeperableConvoutionOperation': DoublySeperableConvoutionOperation,
+        'DimensionalityReductionOperation': DimensionalityReductionOperation,
+        'IdentityOperation': IdentityOperation,
+        'DenseOperation': DenseOperation,
+        'Relu6Layer': Relu6Layer
+    }
+
+    model = tf.keras.models.load_model(os.path.join(dir_path, model_name + '.h5'), custom_objects=custom_objects)
     return model
 
 
 def _save_keras_model(keras_model, dir_path: str, model_name: str):
     # tf.keras.models.save_model(keras_model, os.path.join(dir_path, model_name + '_save'))
-    keras_model.save(os.path.join(dir_path, model_name + '_save'))
+    # keras_model.save(os.path.join(dir_path, model_name + '_save'))
+    keras_model.save(os.path.join(dir_path, model_name + '.h5'))
 
 
 if __name__ == '__main__':

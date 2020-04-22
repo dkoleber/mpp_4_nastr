@@ -224,7 +224,7 @@ def test_accuracy_at_different_train_amounts_analyze_2():
 
 
 def test_model_mutation():
-    init_dir_path = os.path.join(evo_dir, 'test_accuracy_epochs')
+    init_dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5')
     dataset = Dataset.get_cifar10()
     dir_path = os.path.join(evo_dir, 'test_mutation_accuracy')
 
@@ -233,7 +233,7 @@ def test_model_mutation():
 
     parent_samples = [x for x in os.listdir(init_dir_path) if 'small' not in x and 'png' not in x]
     init_samples = parent_samples[:8]
-    init_samples.extend(parent_samples[-8:]) # use the first 8 and the last 8, since the first half has different hyperparameters than the second half
+    # init_samples.extend(parent_samples[-8:]) # use the first 8 and the last 8, since the first half has different hyperparameters than the second half //TODO: USE SMALLER MODELS?
 
     done_samples = [x for x in os.listdir(dir_path) if '_seeded' not in x]
 
@@ -241,25 +241,27 @@ def test_model_mutation():
 
     print(f'{len(init_samples)} samples remaining')
 
+    def set_parameters(model):
+        parent_model.metrics.metrics['accuracy'] = []
+        parent_model.metrics.metrics['average_train_time'] = []
+        parent_model.metrics.metrics['average_inference_time'] = []
+        parent_model.hyperparameters.parameters['TRAIN_ITERATIONS'] = 8
+
     for index, parent in enumerate(init_samples):
         print(f'training {index} from parent weights')
         tf.keras.backend.clear_session()
         parent_model = MetaModel.load(init_dir_path, parent, True)
-        parent_model.metrics.metrics['accuracy'] = []
-        parent_model.metrics.metrics['average_train_time'] = []
-        parent_model.metrics.metrics['average_inference_time'] = []
+        set_parameters(parent_model)
         parent_model.model_name = parent + '_seeded'
-        # parent_model.mutate()
+        parent_model.mutate()
         parent_model.evaluate(dataset)
         parent_model.save_model(dir_path)
         parent_model.save_metadata(dir_path)
         parent_model.clear_model()
         print(f'training {index} without parent weights')
-        parent_model.metrics.metrics['accuracy'] = []
-        parent_model.metrics.metrics['average_train_time'] = []
-        parent_model.metrics.metrics['average_inference_time'] = []
+        set_parameters(parent_model)
         parent_model.build_model(dataset.images_shape)
-        parent_model.model_name = parent
+        parent_model.model_name = parent + '_fresh'
         parent_model.evaluate(dataset)
         parent_model.save_model(dir_path)
         parent_model.save_metadata(dir_path)
@@ -268,22 +270,33 @@ def test_model_mutation():
 
 def convert_all_models():
     dir_path = os.path.join(evo_dir, 'test_accuracy_epochs')
+    output_dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5')
 
+    if not os.path.exists(output_dir_path):
+        os.makedirs(output_dir_path)
+
+    # dataset = Dataset.get_cifar10_reduced()
     dataset = Dataset.get_cifar10()
 
+    completed_model_names = [x for x in os.listdir(output_dir_path) if '.png' not in x]
+    saved_model_names = [x for x in os.listdir(dir_path) if '.png' not in x and x not in completed_model_names]
 
-    model_names = [x for x in os.listdir(dir_path) if '.png' not in x]
-
-    for model_name in model_names:
+    for index, model_name in enumerate(saved_model_names):
+        print(f'training model {index} of {len(saved_model_names)}')
         model = MetaModel.load(dir_path, model_name, False)
-        # model.build_model()
-        model.keras_model.evaluate(dataset.test_images, dataset.test_labels)
-        model.keras_model.save(os.path.join(dir_path, model_name, f'{model_name}.h5'))
+
+        # model.hyperparameters.parameters['TRAIN_ITERATIONS'] = 1
+
+        model.build_model(dataset.images_shape)
+        model.evaluate(dataset)
+        model.save_metadata(output_dir_path)
+        model.save_model(output_dir_path)
+        # model.keras_model.save(os.path.join(output_dir_path, model_name, f'{model_name}.h5'))
         model.clear_model()
         tf.keras.backend.clear_session()
 
 def test_load_model():
-    # convert_all_models()
+    convert_all_models()
     # return
 
     dir_path = os.path.join(evo_dir, 'test_load_model')
@@ -296,16 +309,23 @@ def test_load_model():
     hyperparameters.parameters['TRAIN_EPOCHS'] = 1
     hyperparameters.parameters['TRAIN_ITERATIONS'] = 1
 
-    # dataset = Dataset.get_cifar10_reduced()
-    dataset = Dataset.get_cifar10()
+    dataset = Dataset.get_cifar10_reduced()
+    # dataset = Dataset.get_cifar10()
 
     new_candidate = MetaModel(hyperparameters)
     new_candidate.populate_with_nasnet_metacells()
     new_candidate.model_name = 'init_model'
     new_candidate.build_model(dataset.images_shape)
+
+    print(new_candidate.keras_model_data.get_hashes())
     new_candidate.evaluate(dataset)
+
+    print(new_candidate.keras_model_data.get_hashes())
+
+
     for x in range(5):
         new_candidate.mutate()
+        print(new_candidate.keras_model_data.get_hashes())
         post_mutation_accuracy = new_candidate.keras_model.evaluate(dataset.test_images, dataset.test_labels)[-1]
         # print(f'iteration {x}: post mutation accuracy pre training: {post_mutation_accuracy}')
         new_candidate.evaluate(dataset)
