@@ -23,7 +23,6 @@ TODO:
 =HIGH PRIORITY=
 - soft vs hard fitness curve for accuracy / time tradeoff
 - config determines fitness calculator
-- bug: model is sometimes loaded twice (during evolution??)
 - early stopping determined by delta test accuracy
 
 =MEDIUM PRIORITY=
@@ -38,16 +37,12 @@ TODO:
 - should block output be dim reduced after concat?
 
 =EXPERIMENTS=
-coorelation between training accuracy vs late training accuracy
 coorelation between FLOPS vs size vs time
 coorelation betweeen accuracy of low filter numbers vs high
 
 '''
 
 '''
-
-model surgery
-increasing epochs
 pareto sampling
 scheduled droppath
 cosine annealing
@@ -306,13 +301,16 @@ if __name__ == '__main__':
                 test_model_mutation()
 
             if sys.argv[arg_pos] == 'test4':
-                test_load_model()
+                test_get_flops()
 
             if sys.argv[arg_pos] == 'test_measure':
                 test_accuracy_at_different_train_amounts_analyze()
 
             if sys.argv[arg_pos] == 'test_measure2':
                 test_accuracy_at_different_train_amounts_analyze_2()
+
+            if sys.argv[arg_pos] == 'test_measure3':
+                analyze_mutations()
 
         elif num_args == 2:
             if sys.argv[arg_pos] == 'init':

@@ -16,6 +16,7 @@ from OperationType import OperationType
 from SGDR import SGDR
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
+from graphviz import Digraph
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -134,6 +135,15 @@ class MetaCell(SerialData):
             item.deserialize(group)
             self.groups.append(item)
 
+    def get_unused_group_indexes(self):
+        used = [x + 2 for x in range(len(self.groups))]
+        for group in self.groups:
+            for op in group.operations:
+                if op.actual_attachment in used:
+                    used.remove(op.actual_attachment)
+
+        return used
+
 
 class MetaModel(SerialData):
     def __init__(self, hyperparameters: Hyperparameters = Hyperparameters()):
@@ -187,21 +197,33 @@ class MetaModel(SerialData):
         self.cells.append(reduction_cell)
 
     def mutate(self):
-        other_mutation_threshold = ((1. - self.hyperparameters.parameters['IDENTITY_THRESHOLD']) / 2.) + self.hyperparameters.parameters['IDENTITY_THRESHOLD']
+        cell_index, group_index, item_index, mutation_type, mutation_subtype = self.select_mutation()
+        self.apply_mutation(cell_index, group_index, item_index, mutation_type, mutation_subtype)
+
+    def select_mutation(self):
         cell_index = int(np.random.random() * len(self.cells))
         select_block = self.cells[cell_index]
         group_index = int(np.random.random() * len(select_block.groups))
         select_group = select_block.groups[group_index]
         item_index = int(np.random.random() * len(select_group.operations))
+        mutation_type = np.random.random()
+        mutation_subtype = np.random.random()
+
+        return cell_index, group_index, item_index, mutation_type, mutation_subtype
+
+    def apply_mutation(self, cell_index, group_index, item_index, mutation_type, mutation_subtype):
+        other_mutation_threshold = ((1. - self.hyperparameters.parameters['IDENTITY_THRESHOLD']) / 2.) + self.hyperparameters.parameters['IDENTITY_THRESHOLD']
+        select_block = self.cells[cell_index]
+        select_group = select_block.groups[group_index]
         select_item = select_group.operations[item_index]
-        select_mutation = np.random.random()
+
         mutation_string = f'mutating cell {cell_index}, group {group_index}, item {item_index}: '
-        if select_mutation < self.hyperparameters.parameters['IDENTITY_THRESHOLD']:
+        if mutation_type < self.hyperparameters.parameters['IDENTITY_THRESHOLD']:
             # identity mutation
             print(mutation_string + 'identity mutation')
             return
 
-        if self.hyperparameters.parameters['IDENTITY_THRESHOLD'] < select_mutation < other_mutation_threshold:
+        if self.hyperparameters.parameters['IDENTITY_THRESHOLD'] < mutation_type < other_mutation_threshold:
             # hidden state mutation = change inputs
 
             # don't try to change the state of the first group since it need to point to the first two inputs of the block
@@ -210,7 +232,7 @@ class MetaModel(SerialData):
                 new_attachment = previous_attachment
                 # ensure that the mutation doesn't result in the same attachment as before
                 while new_attachment == previous_attachment:
-                    new_attachment = int(np.random.random() * select_item.attachment_index) #TODO: EXCLUSIVE RANDOM
+                    new_attachment = int(mutation_subtype * select_item.attachment_index) #TODO: EXCLUSIVE RANDOM
 
                 if self.keras_model_data is not None:
                     self.keras_model_data.hidden_state_mutation(self.hyperparameters, cell_index, group_index, item_index, new_attachment, select_item.operation_type)
@@ -222,7 +244,7 @@ class MetaModel(SerialData):
         else:
             # operation mutation
             previous_op = select_item.operation_type
-            select_item.operation_type = int(np.random.random() * (OperationType.SEP_1X7_7X1 + 1))
+            select_item.operation_type = int(mutation_subtype * (OperationType.SEP_1X7_7X1 + 1))
             if previous_op != select_item.operation_type and self.keras_model_data is not None:
                 self.keras_model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
             print(mutation_string + f'operation type mutation from {previous_op} to {select_item.operation_type}')
@@ -390,6 +412,62 @@ class MetaModel(SerialData):
 
         return result
 
+    def generate_graph(self, dir_path: str):
+        print(f'Generating graph for {self.model_name}')
+        graph = Digraph(comment='Model Architecture', format='png')
+
+        for cell_index, cell in enumerate(self.cells):
+            graph.node(f'{cell_index}_in', f'Cell Input {cell_index}')
+            graph.node(f'{cell_index}_0', f'Residual')
+            graph.node(f'{cell_index}_1', f'Previous Layer')
+            graph.edge(f'{cell_index}_in', f'{cell_index}_0')
+            graph.edge(f'{cell_index}_in', f'{cell_index}_1')
+            for group_index, group in enumerate(cell.groups):
+                graph.node(f'{cell_index}_{group_index + 2}', f'Group Concat {cell_index}_{group_index}')
+                for item_index, item in enumerate(group.operations):
+                    graph.node(f'{cell_index}_{group_index}_{item_index}', f'OP {cell_index}_{group_index}_{item_index}_{item.operation_type}')
+                    graph.edge(f'{cell_index}_{item.actual_attachment}', f'{cell_index}_{group_index}_{item_index}')
+                    graph.edge(f'{cell_index}_{group_index}_{item_index}', f'{cell_index}_{group_index + 2}')
+
+            unused_nodes = cell.get_unused_group_indexes()
+            graph.node(f'{cell_index}_out', 'Cell Output')
+            for node in unused_nodes:
+                graph.edge(f'{cell_index}_{node}', f'{cell_index}_out')
+
+        graph.render(os.path.join(dir_path, self.model_name, 'graph.png'))
+
+    def get_flops(self, dataset:Dataset):
+        if self.keras_model is None:
+            return 0
+
+
+
+        # session = tf.compat.v1.get_default_session()
+        session = tf.compat.v1.keras.backend.get_session()
+
+        with session.as_default():
+            input_img = tf.ones((1,) + dataset.images_shape, dtype=tf.float32)
+            output_image = self.keras_model(input_img)
+
+            run_meta = tf.compat.v1.RunMetadata()
+
+            _ = session.run(output_image,
+                            options=tf.compat.v1.RunOptions(trace_level=tf.compat.v1.RunOptions.FULL_TRACE),
+                            run_metadata=run_meta,
+                            # feed_dict={input_img:np.reshape(dataset.test_images[0], (1,)+dataset.images_shape)}
+                            )
+
+            opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
+            # opts['output'] = 'none'
+            flops = tf.compat.v1.profiler.profile(run_meta=run_meta, cmd='op', options=opts)
+
+            return flops.total_float_ops
+
+        # run_meta = tf.compat.v1.RunMetadata()
+        # opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
+        # flops = tf.compat.v1.profiler.profile(tf.compat.v1.keras.backend.get_session().graph, run_meta=run_meta, cmd='op', options=opts)
+        # return flops.total_float_ops
+
 
 class Relu6Layer(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
@@ -493,6 +571,7 @@ class AveragePoolingOperation(KerasOperation):
         parser.get_next_name('relu6_layer')
         parser.get_next_name('average_pooling2d')
 
+
 class MaxPoolingOperation(KerasOperation):
     def __init__(self, output_dim: int, stride: int, pool_size: int, **kwargs):
         super().__init__(output_dim, stride, **kwargs)
@@ -524,6 +603,7 @@ class DoublySeperableConvoutionOperation(KerasOperation):
         self.convolution_layer_1 = tf.keras.layers.SeparableConv2D(output_dim, (kernel_size, 1), self.stride, 'same')
         self.convolution_layer_2 = tf.keras.layers.SeparableConv2D(output_dim, (1, kernel_size), self.stride, 'same')
         self.normalization_layer = None
+        self.kernel_size = kernel_size
         if use_normalization:
             self.normalization_layer = tf.keras.layers.BatchNormalization()
 
@@ -554,6 +634,7 @@ class DoublySeperableConvoutionOperation(KerasOperation):
         parser.get_next_name('seperable_conv2d')
         parser.get_next_name('relu6_layer')
         parser.get_next_name('batch_normalization')
+
 
 class DimensionalityReductionOperation(KerasOperation):
     def __init__(self, output_dim: int, stride: int = 1, **kwargs):
@@ -849,7 +930,6 @@ class ModelDataHolder:
             # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
             self.final_dense = DenseOperation(10, .5)
         else:
-            print(keras_model.summary(line_length=300))
             initial_size = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
 
             self.cells: List[CellDataHolder] = []
@@ -874,8 +954,6 @@ class ModelDataHolder:
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
             self.final_activation = keras_model.get_layer(parser.get_next_name('relu6_layer'))
             self.final_dense = keras_model.get_layer(parser.get_next_name('dense_operation'))
-
-
 
 
     def get_hashes(self):

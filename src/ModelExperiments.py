@@ -233,39 +233,61 @@ def test_model_mutation():
 
     parent_samples = [x for x in os.listdir(init_dir_path) if 'small' not in x and 'png' not in x]
     init_samples = parent_samples[:8]
-    # init_samples.extend(parent_samples[-8:]) # use the first 8 and the last 8, since the first half has different hyperparameters than the second half //TODO: USE SMALLER MODELS?
+    init_samples.extend(parent_samples[-8:]) # use the first 8 and the last 8, since the first half has different hyperparameters than the second half //TODO: USE SMALLER MODELS?
 
-    done_samples = [x for x in os.listdir(dir_path) if '_seeded' not in x]
+    done_seeded_samples = [x for x in os.listdir(dir_path) if '_seeded' in x]
+    done_fresh_samples = [x for x in os.listdir(dir_path) if '_fresh' in x]
 
-    init_samples = [x for x in init_samples if x not in done_samples]
+    remaining_seeded_samples = [x for x in init_samples if x + '_seeded' not in done_seeded_samples]
+    remaining_fresh_samples = [x for x in init_samples if x + '_fresh' not in done_fresh_samples]
 
-    print(f'{len(init_samples)} samples remaining')
+    print(f'{len(remaining_seeded_samples)} seeded samples remaining (of {len(init_samples)})')
+    print(f'{len(remaining_fresh_samples)} fresh samples remaining (of {len(init_samples)})')
+    print(f'{len(init_samples)} total samples to process')
 
     def set_parameters(model):
         parent_model.metrics.metrics['accuracy'] = []
         parent_model.metrics.metrics['average_train_time'] = []
         parent_model.metrics.metrics['average_inference_time'] = []
-        parent_model.hyperparameters.parameters['TRAIN_ITERATIONS'] = 8
+        parent_model.hyperparameters.parameters['TRAIN_ITERATIONS'] = 1
 
     for index, parent in enumerate(init_samples):
-        print(f'training {index} from parent weights')
         tf.keras.backend.clear_session()
-        parent_model = MetaModel.load(init_dir_path, parent, True)
-        set_parameters(parent_model)
-        parent_model.model_name = parent + '_seeded'
-        parent_model.mutate()
-        parent_model.evaluate(dataset)
-        parent_model.save_model(dir_path)
-        parent_model.save_metadata(dir_path)
-        parent_model.clear_model()
-        print(f'training {index} without parent weights')
-        set_parameters(parent_model)
-        parent_model.build_model(dataset.images_shape)
-        parent_model.model_name = parent + '_fresh'
-        parent_model.evaluate(dataset)
-        parent_model.save_model(dir_path)
-        parent_model.save_metadata(dir_path)
-        parent_model.clear_model()
+        parent_model = None
+
+        if parent in remaining_seeded_samples:
+            parent_model = MetaModel.load(init_dir_path, parent, True)
+            print(f'training {index} from parent weights')
+            set_parameters(parent_model)
+            parent_model.model_name = parent + '_seeded'
+            pre_accuracy = float(parent_model.keras_model.evaluate(dataset.test_images, dataset.test_labels)[-1])
+            parent_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
+            post_accuracy = float(parent_model.keras_model.evaluate(dataset.test_images, dataset.test_labels)[-1])
+            # print(f'accuracy pre training post mutation: {pre_accuracy}')
+            parent_model.metrics.metrics['accuracy'].append(pre_accuracy)
+            parent_model.metrics.metrics['accuracy'].append(post_accuracy)
+            parent_model.evaluate(dataset)
+            parent_model.save_model(dir_path)
+            parent_model.save_metadata(dir_path)
+            parent_model.clear_model()
+        if parent in remaining_fresh_samples and False:
+            print(f'training {index} without parent weights')
+            set_parameters(parent_model)
+            parent_model.build_model(dataset.images_shape)
+            parent_model.model_name = parent + '_fresh'
+            parent_model.evaluate(dataset)
+            parent_model.save_model(dir_path)
+            parent_model.save_metadata(dir_path)
+            parent_model.clear_model()
+
+
+def analyze_mutations():
+    dir_path = os.path.join(evo_dir, 'test_mutation_accuracy')
+    samples = [x for x in os.listdir(dir_path) if '_seeded' in x]
+    for sample in samples:
+        model = MetaModel.load(dir_path, sample, False)
+        accuracies = model.metrics.metrics['accuracy']
+        print(f'{sample}: before: {accuracies[0]} after: {accuracies[1]}')
 
 
 def convert_all_models():
@@ -295,9 +317,8 @@ def convert_all_models():
         model.clear_model()
         tf.keras.backend.clear_session()
 
+
 def test_load_model():
-    convert_all_models()
-    # return
 
     dir_path = os.path.join(evo_dir, 'test_load_model')
     if not os.path.exists(dir_path):
@@ -370,4 +391,13 @@ def test_load_model():
     lm2.evaluate(dataset)
 
 
+def test_get_flops():
+    dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5')
 
+    sample = os.listdir(dir_path)[0]
+
+    dataset = Dataset.get_cifar10()
+
+    model = MetaModel.load(dir_path, sample, True)
+    flops = model.get_flops(dataset)
+    print(f'model flops: {flops}')

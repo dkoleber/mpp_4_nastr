@@ -33,7 +33,7 @@ class Hyperparameters(SerialData):
     def _default_parameters(debug_mode: bool):
         if not debug_mode:
             return {
-                'IDENTITY_THRESHOLD': .1, #.33
+                'IDENTITY_THRESHOLD': 0., #.33
                 'NORMAL_CELL_N': 5,
                 'CELL_LAYERS': 3,
                 'INITIAL_LAYER_DIMS': 16,
