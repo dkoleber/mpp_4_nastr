@@ -5,11 +5,11 @@ from scipy import stats
 
 from EvolutionStrategy import AgingStrategy
 from FitnessCalculator import AccuracyCalculator
-from Dataset import Dataset
+from Dataset import ImageDataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv3 import *
+from NASModel import *
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 
@@ -28,7 +28,7 @@ def test_accuracy_at_different_train_amounts():
     hyperparameters.parameters['TRAIN_EPOCHS'] = 1
     hyperparameters.parameters['TRAIN_ITERATIONS'] = 16
 
-    dataset = Dataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10()
 
     existing_sims = [x for x in os.listdir(dir_path) if 'small' not in x and '.png' not in x]
 
@@ -64,7 +64,7 @@ def test_accuracy_at_different_train_amounts_2():
     adjusted_normal_stacks = 3
     adjusted_layer_stacks = 2
 
-    dataset = Dataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10()
 
     for x in population:
         x.hyperparameters.parameters['NORMAL_CELL_N'] = adjusted_normal_stacks
@@ -225,7 +225,7 @@ def test_accuracy_at_different_train_amounts_analyze_2():
 
 def test_model_mutation():
     init_dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5')
-    dataset = Dataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10()
     dir_path = os.path.join(evo_dir, 'test_mutation_accuracy')
 
     if not os.path.exists(dir_path):
@@ -298,7 +298,7 @@ def convert_all_models():
         os.makedirs(output_dir_path)
 
     # dataset = Dataset.get_cifar10_reduced()
-    dataset = Dataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10()
 
     completed_model_names = [x for x in os.listdir(output_dir_path) if '.png' not in x]
     saved_model_names = [x for x in os.listdir(dir_path) if '.png' not in x and x not in completed_model_names]
@@ -330,7 +330,7 @@ def test_load_model():
     hyperparameters.parameters['TRAIN_EPOCHS'] = 1
     hyperparameters.parameters['TRAIN_ITERATIONS'] = 1
 
-    dataset = Dataset.get_cifar10_reduced()
+    dataset = ImageDataset.get_cifar10_reduced()
     # dataset = Dataset.get_cifar10()
 
     new_candidate = MetaModel(hyperparameters)
@@ -396,8 +396,33 @@ def test_get_flops():
 
     sample = os.listdir(dir_path)[0]
 
-    dataset = Dataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10()
 
     model = MetaModel.load(dir_path, sample, True)
     flops = model.get_flops(dataset)
     print(f'model flops: {flops}')
+
+
+def train_models_more():
+    in_dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5')
+    out_dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5_add8')
+
+    if not os.path.exists(out_dir_path):
+        os.makedirs(out_dir_path)
+
+    all_samples = [x for x in os.listdir(in_dir_path) if 'small' not in x and '.csv' not in x]
+    done_samples = [x for x in os.listdir(out_dir_path) if 'small' not in x and '.csv' not in x]
+    todo_samples = [x for x in all_samples if x not in done_samples]
+    print(f'{len(todo_samples)} samples remaining')
+
+    dataset = ImageDataset.get_cifar10()
+
+    for index, sample in enumerate(todo_samples):
+        print(f'training sample {index} of {len(todo_samples)}')
+        model = MetaModel.load(in_dir_path, sample, True)
+        init_iterations = model.hyperparameters.parameters['TRAIN_ITERATIONS']
+        model.hyperparameters.parameters['TRAIN_ITERATIONS'] /= 2
+        model.evaluate(dataset)
+        model.hyperparameters.parameters['TRAIN_ITERATIONS'] += init_iterations
+        model.save_model(out_dir_path)
+        model.clear_model()

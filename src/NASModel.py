@@ -8,21 +8,23 @@ import tensorflow as tf
 from typing import List
 from enum import IntEnum
 import time
-from Dataset import Dataset, ShufflerCallback
+
 import copy
+
+from graphviz import Digraph
+import os
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 from FileManagement import *
 from Metrics import Metrics
 from OperationType import OperationType
 from SGDR import SGDR
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
-from graphviz import Digraph
-
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-
+from Dataset import ImageDataset, ShufflerCallback
+from ModelUtilities import *
 
 tf.compat.v1.disable_eager_execution()
 
@@ -300,7 +302,7 @@ class MetaModel(SerialData):
         else:
             print('reusing previous keras model')
 
-    def evaluate(self, dataset: Dataset) -> None:
+    def evaluate(self, dataset: ImageDataset) -> None:
         BATCH_SIZE = 64
         sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels),
                     self.hyperparameters.parameters['SGDR_EPOCHS_PER_RESTART'],
@@ -327,7 +329,7 @@ class MetaModel(SerialData):
         dir_name = os.path.join(dir_path, self.model_name)
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
-        _write_serial_data_to_json(self, dir_name, self.model_name)
+        SerialData.write_serial_data_to_json(self, dir_name, self.model_name)
 
     def plot_model(self, dir_path):
         dir_name = os.path.join(dir_path, self.model_name)
@@ -344,12 +346,25 @@ class MetaModel(SerialData):
 
     def save_model(self, dir_path: str = model_save_dir):
         if self.keras_model is not None:
+            custom_objects = {
+                'SeperableConvolutionOperation': SeperableConvolutionOperation,
+                'AveragePoolingOperation': AveragePoolingOperation,
+                'MaxPoolingOperation': MaxPoolingOperation,
+                'DoublySeperableConvoutionOperation': DoublySeperableConvoutionOperation,
+                'DimensionalityReductionOperation': DimensionalityReductionOperation,
+                'IdentityOperation': IdentityOperation,
+                'DenseOperation': DenseOperation,
+                'Relu6Layer': Relu6Layer
+            }
+
             print(f'saving graph for {self.model_name}')
             dir_name = os.path.join(dir_path, self.model_name)
             if not os.path.exists(dir_name):
                 os.mkdir(dir_name)
             save_time = time.time()
-            _save_keras_model(self.keras_model, dir_name, self.model_name)
+
+
+            ModelUtilities.save_keras_model(self.keras_model, dir_name, self.model_name)
             save_time = time.time() - save_time
             self.metrics.metrics['save_time'] = save_time
             print(f'finished saving graph for {self.model_name} after {save_time} seconds')
@@ -387,7 +402,7 @@ class MetaModel(SerialData):
         if contains_keras_model:
             print(f'loading model for {self.model_name}')
             load_time = time.time()
-            self.keras_model = _load_keras_model(dir_name, self.model_name)
+            self.keras_model = ModelUtilities.load_keras_model(dir_name, self.model_name)
             self.keras_model_data = ModelDataHolder(self, self.keras_model)
             load_time = time.time() - load_time
             print(f'finished loading model for {self.model_name} in {load_time} seconds')
@@ -404,7 +419,7 @@ class MetaModel(SerialData):
             print('Model does not exist at specified location')
             return MetaModel()
 
-        serial_data = _load_serial_data_from_json(dir_name, name)
+        serial_data = SerialData.load_serial_data_from_json(dir_name, name)
         result = MetaModel()
         result.deserialize(serial_data)
         if load_graph:
@@ -436,7 +451,7 @@ class MetaModel(SerialData):
 
         graph.render(os.path.join(dir_path, self.model_name, 'graph.png'))
 
-    def get_flops(self, dataset:Dataset):
+    def get_flops(self, dataset:ImageDataset):
         if self.keras_model is None:
             return 0
 
@@ -467,6 +482,17 @@ class MetaModel(SerialData):
         # opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
         # flops = tf.compat.v1.profiler.profile(tf.compat.v1.keras.backend.get_session().graph, run_meta=run_meta, cmd='op', options=opts)
         # return flops.total_float_ops
+
+    def get_embedding(self):
+        embedding = []
+
+        for cell in self.cells:
+            for group in cell.groups:
+                for op in group.operations:
+                    embedding.append(op.operation_type)
+                    embedding.append(op.actual_attachment)
+
+        return embedding
 
 
 class Relu6Layer(tf.keras.layers.Layer):
@@ -1032,36 +1058,10 @@ class ModelDataHolder:
         return tf.keras.Model(inputs=inputs, outputs=output)
 
 
-def _write_serial_data_to_json(data: SerialData, dir_path: str, name: str) -> None:
-    serialized = data.serialize()
-    write_json_to_file(serialized, dir_path, name)
 
 
-def _load_serial_data_from_json(dir_path: str, name: str) -> dict:
-    serialized = read_json_from_file(dir_path, name)
-    return serialized
 
 
-def _load_keras_model(dir_path: str, model_name: str):
-    custom_objects = {
-        'SeperableConvolutionOperation': SeperableConvolutionOperation,
-        'AveragePoolingOperation': AveragePoolingOperation,
-        'MaxPoolingOperation': MaxPoolingOperation,
-        'DoublySeperableConvoutionOperation': DoublySeperableConvoutionOperation,
-        'DimensionalityReductionOperation': DimensionalityReductionOperation,
-        'IdentityOperation': IdentityOperation,
-        'DenseOperation': DenseOperation,
-        'Relu6Layer': Relu6Layer
-    }
-
-    model = tf.keras.models.load_model(os.path.join(dir_path, model_name + '.h5'), custom_objects=custom_objects)
-    return model
-
-
-def _save_keras_model(keras_model, dir_path: str, model_name: str):
-    # tf.keras.models.save_model(keras_model, os.path.join(dir_path, model_name + '_save'))
-    # keras_model.save(os.path.join(dir_path, model_name + '_save'))
-    keras_model.save(os.path.join(dir_path, model_name + '.h5'))
 
 
 if __name__ == '__main__':

@@ -21,7 +21,8 @@ class Metrics(SerialData):
                     'item_index':0,
                     'mutation_type':0,
                     'mutation_subtype':0
-                }
+                },
+            'flops':0
         }
 
 

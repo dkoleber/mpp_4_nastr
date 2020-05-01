@@ -9,7 +9,7 @@ from typing import List
 from enum import IntEnum
 import time
 from tensorflow.keras.models import load_model
-from Dataset import Dataset
+from Dataset import ImageDataset
 import copy
 from FileManagement import *
 from Metrics import Metrics
@@ -324,7 +324,7 @@ class MetaModel(SerialData):
         self.hyperparameters = Hyperparameters()
         self.hyperparameters.deserialize(obj['hyperparameters'])
 
-    def evaluate(self, dataset: Dataset) -> None:
+    def evaluate(self, dataset: ImageDataset) -> None:
         # keras_graph = tfp.keras.backend.get_session().graph
         self.keras_graph = tf.Graph()
 
@@ -632,7 +632,7 @@ if __name__ == '__main__':
     writer = tf.summary.create_file_writer(logdir)
     tf.summary.trace_on(graph=True, profiler=True)
 
-    dataset = Dataset.get_build_set()
+    dataset = ImageDataset.get_build_set()
     keras_model.fit(dataset.train_images, dataset.train_labels, epochs=1)
     # tf.keras.utils.plot_model(keras_model, 'model_image.png', expand_nested=True, show_layer_names=True, show_shapes=True)
 

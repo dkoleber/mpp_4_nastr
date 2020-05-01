@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple
 import numpy as np
 
-from Dataset import Dataset
+from Dataset import ImageDataset
 from FitnessCalculator import AccuracyCalculator
-from Modelv3 import MetaModel
+from NASModel import MetaModel
 
 
 class EvolutionStrategy(ABC):
@@ -49,7 +49,7 @@ class SeepingStrategy(EvolutionStrategy):
         actual_select_n = min(len(population), SELECT_N)
 
         fitness_calculator = AccuracyCalculator()
-        dataset = Dataset.get_cifar10()
+        dataset = ImageDataset.get_cifar10()
 
         population.sort(key=lambda x: x.fitness)
         best_candidates = population[:actual_select_n]

@@ -6,7 +6,7 @@ from typing import List
 from enum import IntEnum
 import time
 from tensorflow.keras.models import load_model
-from Dataset import Dataset
+from Dataset import ImageDataset
 import copy
 from FileManagement import *
 from Metrics import Metrics
@@ -375,7 +375,7 @@ class Model(SerialData):
         self.hyperparameters = Hyperparameters()
         self.hyperparameters.deserialize(obj['hyperparameters'])
 
-    def evaluate(self, dataset: Dataset) -> None:
+    def evaluate(self, dataset: ImageDataset) -> None:
         # keras_graph = tfp.keras.backend.get_session().graph
         keras_graph = tf.Graph()
 

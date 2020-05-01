@@ -1,5 +1,5 @@
 import tensorflow as tf
-from Dataset import Dataset
+from Dataset import ImageDataset
 import os
 from FileManagement import *
 import time
@@ -39,7 +39,7 @@ class SwapModel(tf.keras.Model):
 
 
 def test1():
-    dataset = Dataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10()
 
     model = SwapModel()
 
@@ -99,7 +99,7 @@ class ModelHolder:
         return keras_model
 
 def test2():
-    dataset = Dataset.get_build_set()
+    dataset = ImageDataset.get_build_set()
 
     model_holder = ModelHolder()
 
@@ -135,7 +135,7 @@ def test2():
 
 
 def test3():
-    dataset = Dataset.get_build_set()
+    dataset = ImageDataset.get_build_set()
 
     keras_model = SwapModel()
 

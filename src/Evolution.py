@@ -5,11 +5,11 @@ from scipy import stats
 
 from EvolutionStrategy import AgingStrategy
 from FitnessCalculator import AccuracyCalculator
-from Dataset import Dataset
+from Dataset import ImageDataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv3 import MetaModel, print_vars
+from NASModel import MetaModel, print_vars
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 from ModelExperiments import *
@@ -142,9 +142,9 @@ def do_evolution(dir_path: str, num_rounds: int, is_debug: bool = False):
 
     dataset = None
     if is_debug:
-        dataset = Dataset.get_build_set()
+        dataset = ImageDataset.get_build_set()
     else:
-        dataset = Dataset.get_cifar10()
+        dataset = ImageDataset.get_cifar10()
 
     fitness_calculator = AccuracyCalculator()
 
@@ -301,7 +301,7 @@ if __name__ == '__main__':
                 test_model_mutation()
 
             if sys.argv[arg_pos] == 'test4':
-                test_get_flops()
+                train_models_more()
 
             if sys.argv[arg_pos] == 'test_measure':
                 test_accuracy_at_different_train_amounts_analyze()
