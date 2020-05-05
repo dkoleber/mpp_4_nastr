@@ -308,12 +308,18 @@ class MetaModel(SerialData):
                     self.hyperparameters.parameters['SGDR_EPOCHS_PER_RESTART'],
                     self.hyperparameters.parameters['SGDR_LR_DECAY'],
                     self.hyperparameters.parameters['SGDR_PERIOD_DECAY'])
-        shuffler = ShufflerCallback(dataset)
 
-        for iteration in range(self.hyperparameters.parameters['TRAIN_ITERATIONS']):
+
+        completed_epochs = len(self.metrics.metrics['accuracy'])
+        if completed_epochs != 0:
+            sgdr.init_after_epochs(completed_epochs)
+
+        shuffler = ShufflerCallback(dataset) #TODO
+
+        for iteration in range(int(self.hyperparameters.parameters['TRAIN_ITERATIONS'])):
             print(f'Starting training iteration {iteration}')
             train_time = time.time()
-            for epoch_num in range(self.hyperparameters.parameters['TRAIN_EPOCHS']):
+            for epoch_num in range(int(self.hyperparameters.parameters['TRAIN_EPOCHS'])):
                 self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=1, callbacks=[sgdr, shuffler])
             train_time = time.time() - train_time
 
@@ -402,7 +408,18 @@ class MetaModel(SerialData):
         if contains_keras_model:
             print(f'loading model for {self.model_name}')
             load_time = time.time()
-            self.keras_model = ModelUtilities.load_keras_model(dir_name, self.model_name)
+
+            custom_objects = {
+                'SeperableConvolutionOperation': SeperableConvolutionOperation,
+                'AveragePoolingOperation': AveragePoolingOperation,
+                'MaxPoolingOperation': MaxPoolingOperation,
+                'DoublySeperableConvoutionOperation': DoublySeperableConvoutionOperation,
+                'DimensionalityReductionOperation': DimensionalityReductionOperation,
+                'IdentityOperation': IdentityOperation,
+                'DenseOperation': DenseOperation,
+                'Relu6Layer': Relu6Layer
+            }
+            self.keras_model = ModelUtilities.load_keras_model(dir_name, self.model_name, custom_objects)
             self.keras_model_data = ModelDataHolder(self, self.keras_model)
             load_time = time.time() - load_time
             print(f'finished loading model for {self.model_name} in {load_time} seconds')
@@ -413,7 +430,7 @@ class MetaModel(SerialData):
 
     @staticmethod
     def load(dir_path: str, name: str, load_graph: bool = False) -> MetaModel:
-        print(f'loading model, load_graph = {load_graph}')
+        # print(f'loading model, load_graph = {load_graph}')
         dir_name = os.path.join(dir_path, name)
         if not os.path.exists(dir_name):
             print('Model does not exist at specified location')
@@ -433,14 +450,14 @@ class MetaModel(SerialData):
 
         for cell_index, cell in enumerate(self.cells):
             graph.node(f'{cell_index}_in', f'Cell Input {cell_index}')
-            graph.node(f'{cell_index}_0', f'Residual')
-            graph.node(f'{cell_index}_1', f'Previous Layer')
+            graph.node(f'{cell_index}_0', f'Previous Layer')
+            graph.node(f'{cell_index}_1', f'Residual')
             graph.edge(f'{cell_index}_in', f'{cell_index}_0')
             graph.edge(f'{cell_index}_in', f'{cell_index}_1')
             for group_index, group in enumerate(cell.groups):
                 graph.node(f'{cell_index}_{group_index + 2}', f'Group Concat {cell_index}_{group_index}')
                 for item_index, item in enumerate(group.operations):
-                    graph.node(f'{cell_index}_{group_index}_{item_index}', f'OP {cell_index}_{group_index}_{item_index}_{item.operation_type}')
+                    graph.node(f'{cell_index}_{group_index}_{item_index}', f'{OperationType.lookup_string(item.operation_type)}')
                     graph.edge(f'{cell_index}_{item.actual_attachment}', f'{cell_index}_{group_index}_{item_index}')
                     graph.edge(f'{cell_index}_{group_index}_{item_index}', f'{cell_index}_{group_index + 2}')
 
@@ -454,8 +471,6 @@ class MetaModel(SerialData):
     def get_flops(self, dataset:ImageDataset):
         if self.keras_model is None:
             return 0
-
-
 
         # session = tf.compat.v1.get_default_session()
         session = tf.compat.v1.keras.backend.get_session()
@@ -493,6 +508,28 @@ class MetaModel(SerialData):
                     embedding.append(op.actual_attachment)
 
         return embedding
+
+    def populate_from_embedding(self, embedding):
+        print(f'Populating model from embedding')
+        num_cells = 2
+        num_groups_per_cell = 5
+        num_ops_per_group = 2
+        num_cell_inputs = 2
+
+        dup_embedding = embedding.copy()
+
+        for cell_ind in range(num_cells):
+            self.cells.append(MetaCell(num_cell_inputs))
+            for group_ind in range(num_groups_per_cell):
+                self.cells[cell_ind].groups.append(MetaGroup())
+                for op_ind in range(num_ops_per_group):
+                    self.cells[cell_ind].groups[group_ind].operations.append(MetaOperation(num_cell_inputs + group_ind))
+                    ref_op = self.cells[cell_ind].groups[group_ind].operations[op_ind]
+                    ref_op.operation_type = dup_embedding[0]
+                    ref_op.actual_attachment = dup_embedding[1]
+                    del dup_embedding[0]
+                    del dup_embedding[0]
+
 
 
 class Relu6Layer(tf.keras.layers.Layer):
@@ -817,18 +854,23 @@ class CellDataHolder:
             self.post_reduce = DimensionalityReductionOperation(input_dim)
 
         else:
-
             for group in meta_cell.groups:
                 self.groups.append(GroupDataHolder(input_dim, group, parser, keras_model))
                 for op in group.operations:
                     used_group_indexes.append(op.actual_attachment)
 
-            self.post_concat = keras_model.get_layer(parser.get_next_name('concatenate'))
-
             self.post_reduce = keras_model.get_layer(parser.get_next_name('dimensionality_reduction_operation'))
             self.post_reduce.add_self_to_parser_counts(parser)
 
         self.unused_group_indexes: List[int] = [x for x in range(len(meta_cell.groups) + 2) if x not in used_group_indexes]
+
+        if keras_model is not None:
+            self.post_concat = None
+            if len(self.unused_group_indexes) > 1:
+                self.post_concat = keras_model.get_layer(parser.get_next_name('concatenate'))
+            else:
+                parser.get_next_name('concatenate')
+
 
     def build(self, inputs):
         available_inputs = [x for x in inputs]
@@ -973,14 +1015,12 @@ class ModelDataHolder:
                     self.cells.append(cell)
                     previous_size = cell.output_size
 
-
             self.initial_resize = keras_model.get_layer(parser.get_next_name('conv2d'))
             self.initial_norm = keras_model.get_layer(parser.get_next_name('batch_normalization'))
             self.final_flatten = tf.keras.layers.Flatten()
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
             self.final_activation = keras_model.get_layer(parser.get_next_name('relu6_layer'))
             self.final_dense = keras_model.get_layer(parser.get_next_name('dense_operation'))
-
 
     def get_hashes(self):
         hash_list = []

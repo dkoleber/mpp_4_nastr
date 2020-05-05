@@ -40,13 +40,15 @@ class Hyperparameters(SerialData):
                 'TRAIN_EPOCHS': 2,
                 'TRAIN_ITERATIONS': 2,
                 'LEARNING_RATE': 0.01,
+
+                'SGDR_EPOCHS_PER_RESTART': 1.5,
+                'SGDR_LR_DECAY': .95,
+                'SGDR_PERIOD_DECAY': .95,
+
                 'STRATEGY': 'aging',
                 'ROUNDS': 16,
                 'POPULATION_SIZE': 16,
                 'STRATEGY_SELECTION_SIZE': 8,
-                'SGDR_EPOCHS_PER_RESTART': 1.5,
-                'SGDR_LR_DECAY': .95,
-                'SGDR_PERIOD_DECAY': .95
             }
         else:
             return {

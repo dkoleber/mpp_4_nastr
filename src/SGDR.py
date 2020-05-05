@@ -38,3 +38,11 @@ class SGDR(tf.keras.callbacks.Callback):
             self.restart()
 
         tf.keras.backend.set_value(self.model.optimizer.lr, self.cosine_annealing())
+
+    def init_after_epochs(self, num_epochs):
+        for epoch in range(num_epochs):
+            for batch in range(int(self.epoch_size/self.batch_size)):
+                self.on_batch_end(None)
+            if self.epoch_size % self.batch_size != 0:
+                self.on_batch_end(None)
+
