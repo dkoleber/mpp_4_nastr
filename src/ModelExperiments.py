@@ -2,7 +2,7 @@ from __future__ import annotations
 import sys
 import numpy as np
 from scipy import stats
-
+import tensorflow.python as tfp
 from EvolutionStrategy import AgingStrategy
 from FitnessCalculator import AccuracyCalculator
 from Dataset import ImageDataset
@@ -12,6 +12,7 @@ from FileManagement import *
 from Modelv3 import *
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
+import cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -160,7 +161,7 @@ def analyze_model_performances(dir_name):
 
 
 def test_nasnet_model_accuracy():
-    dir_path = os.path.join(evo_dir, 'nasnet_arch_test')
+    dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
     dataset = ImageDataset.get_cifar10()
 
     if not os.path.exists(dir_path):
@@ -168,7 +169,7 @@ def test_nasnet_model_accuracy():
 
     hyperparameters = Hyperparameters()
     hyperparameters.parameters['TRAIN_EPOCHS'] = 1
-    hyperparameters.parameters['TRAIN_ITERATIONS'] = 48
+    hyperparameters.parameters['TRAIN_ITERATIONS'] = 32
 
     model = MetaModel(hyperparameters)
 
@@ -193,16 +194,56 @@ def test_nasnet_model_accuracy():
                                    OperationType.AVG_3X3, 2,
                                    OperationType.IDENTITY, 3])
 
-    model.generate_graph(dir_path)
-    model.save_metadata(dir_path)
+
     model.build_model(dataset.images_shape)
     model.evaluate(dataset)
     model.save_model(dir_path)
+    model.generate_graph(dir_path)
+    model.save_metadata(dir_path)
     model.clear_model()
+
+def view_confusion_matrix():
+    dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
+    dataset = ImageDataset.get_cifar10()
+
+    model = os.listdir(dir_path)[0]
+
+    model = MetaModel.load(dir_path, model, True)
+
+    print(model.get_confusion_matrix(dataset))
+
+
+
+
+def activations_test():
+    dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5_add8_2')
+    model_names = [x for x in os.listdir(dir_path) if '.csv' not in x and 'small' not in x and '.png' not in x]
+
+    dataset = ImageDataset.get_cifar10()
+
+    model = MetaModel.load(dir_path, model_names[0], True)
+    activations_model = model.activation_viewer()
+
+    predictions = activations_model.predict(dataset.images[:1])
+
+    print(predictions[0].shape)
+    feature_1 = np.mean(predictions[0][0, :, :, :], axis=2)
+
+    scale = 10
+    resize = (feature_1.shape[0] * scale, feature_1.shape[1] * scale)
+    print(resize)
+
+    img = cv2.resize(feature_1, resize, interpolation=cv2.INTER_NEAREST)
+
+    cv2.imshow('predictions', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    test_nasnet_model_accuracy()
+    # activations_test()
+    # test_nasnet_model_accuracy()
+    view_confusion_matrix()
     # train_models_more('test_accuracy_epochs_h5_add8_2', 'test_accuracy_epochs_h5_64', 16)
     # analyze_model_performances('test_accuracy_epochs_h5')
     # analyze_model_performances('test_accuracy_epochs_h5_add8')

@@ -43,7 +43,7 @@ class Hyperparameters(SerialData):
 
                 'SGDR_EPOCHS_PER_RESTART': 1.5,
                 'SGDR_LR_DECAY': .95,
-                'SGDR_PERIOD_DECAY': .95,
+                'SGDR_PERIOD_DECAY': 1.05,
 
                 'STRATEGY': 'aging',
                 'ROUNDS': 16,

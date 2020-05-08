@@ -40,7 +40,7 @@ class ImageDataset:
         images = np.true_divide(images, 127.5)
         images = images - 1.
 
-        return ImageDataset(images, labels, .7, .2, .1)
+        return ImageDataset(images, labels, .833334, .166667, .0)
 
     @staticmethod
     def get_build_set() -> ImageDataset:
@@ -48,6 +48,7 @@ class ImageDataset:
         labels = np.zeros([10, 1])
 
         return ImageDataset(images, labels, .7, .2, .1)
+        # return ImageDataset(images, labels, .83333333, .16666666, .0)
 
 
     @staticmethod
@@ -65,7 +66,7 @@ class ImageDataset:
         images = np.true_divide(images, 127.5)
         images = images - 1.
 
-        return ImageDataset(images, labels, .7, .2, .1)
+        return ImageDataset(images, labels, .833334, .166666, .0)
 
 class ShufflerCallback(tf.keras.callbacks.Callback):
     def __init__(self, dataset: ImageDataset):

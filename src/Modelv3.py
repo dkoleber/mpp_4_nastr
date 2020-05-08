@@ -320,7 +320,7 @@ class MetaModel(SerialData):
             print(f'Starting training iteration {iteration}')
             train_time = time.time()
             for epoch_num in range(int(self.hyperparameters.parameters['TRAIN_EPOCHS'])):
-                self.keras_model.fit(dataset.train_images, dataset.train_labels, batch_size=BATCH_SIZE, epochs=1, callbacks=[sgdr, shuffler])
+                self.keras_model.fit(dataset.train_images, dataset.train_labels, shuffle=True, batch_size=BATCH_SIZE, epochs=1, callbacks=[shuffler]) #TODO: add sgdr back in as callback
             train_time = time.time() - train_time
 
             inference_time = time.time()
@@ -529,6 +529,37 @@ class MetaModel(SerialData):
                     ref_op.actual_attachment = dup_embedding[1]
                     del dup_embedding[0]
                     del dup_embedding[0]
+
+    def get_confusion_matrix(self, dataset):
+        predictions = self.keras_model.predict(dataset.test_images, batch_size=32)
+
+        def softmax(val):
+            return np.exp(val) / sum(np.exp(val))
+
+        predictions = softmax(predictions)
+        predictions = np.argmax(predictions, axis=1)
+
+        matrix = tf.math.confusion_matrix(dataset.test_labels, predictions, num_classes=10)
+
+        with tf.compat.v1.Session().as_default():
+            matrix_val = matrix.eval()
+
+        return matrix_val
+
+    def activation_viewer(self) -> tf.keras.Model:
+        if self.keras_model is None or self.keras_model_data is None:
+            return None
+
+        parser = ModelParsingHelper()
+
+        first_cell_reduce = self.keras_model.get_layer(parser.get_next_name('dimensionality_reduction_operation')).get_output_at(0)
+
+        outputs = [first_cell_reduce]
+        outputs.extend(self.keras_model.outputs)
+        output_model = tf.keras.Model(inputs=self.keras_model.inputs, outputs=outputs)
+
+        return output_model
+
 
 
 
@@ -896,6 +927,8 @@ class CellDataHolder:
 class ReductionCellDataHolder(CellDataHolder):
     def __init__(self, input_dim: int, meta_cell: MetaCell, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
         super().__init__(input_dim, meta_cell, parser, keras_model)
+
+        # self.output_size *= 2
 
         if keras_model is None:
             self.post_reduce_current = tf.keras.layers.Conv2D(self.output_size, 3, 2, 'same')
