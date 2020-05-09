@@ -4,7 +4,7 @@ import numpy as np
 
 from Dataset import ImageDataset
 from FitnessCalculator import AccuracyCalculator
-from Modelv3 import MetaModel
+from NASModel import MetaModel
 
 
 class EvolutionStrategy(ABC):

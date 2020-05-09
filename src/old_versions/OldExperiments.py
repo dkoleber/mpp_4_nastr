@@ -9,7 +9,7 @@ from Dataset import ImageDataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv3 import *
+from NASModel import *
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 

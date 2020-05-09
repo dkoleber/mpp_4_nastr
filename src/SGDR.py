@@ -30,14 +30,16 @@ class SGDR(tf.keras.callbacks.Callback):
         return self.initial_minimum_learning_rate + ((0.5 * (self.maximum_learning_rate - self.initial_minimum_learning_rate)) * (1 + np.cos((self.samples_since_restart / self.samples_per_restart) * np.pi)))
 
     def on_train_begin(self, logs=None):
-        tf.keras.backend.set_value(self.model.optimizer.lr, self.initial_maximum_learning_rate)
+        if self.model is not None:
+            tf.keras.backend.set_value(self.model.optimizer.lr, self.initial_maximum_learning_rate)
 
     def on_batch_end(self, batch, logs=None):
         self.samples_since_restart += self.batch_size
         if self.samples_since_restart > self.samples_per_restart:
             self.restart()
 
-        tf.keras.backend.set_value(self.model.optimizer.lr, self.cosine_annealing())
+        if self.model is not None:
+            tf.keras.backend.set_value(self.model.optimizer.lr, self.cosine_annealing())
 
     def init_after_epochs(self, num_epochs):
         for epoch in range(num_epochs):

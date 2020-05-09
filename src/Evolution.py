@@ -9,7 +9,7 @@ from Dataset import ImageDataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv3 import MetaModel, print_vars
+from NASModel import MetaModel, print_vars
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 from ModelExperiments import *

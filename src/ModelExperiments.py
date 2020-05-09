@@ -9,7 +9,7 @@ from Dataset import ImageDataset
 import matplotlib.pyplot as plt
 import time
 from FileManagement import *
-from Modelv3 import *
+from NASModel import *
 from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 import cv2
@@ -162,14 +162,17 @@ def analyze_model_performances(dir_name):
 
 def test_nasnet_model_accuracy():
     dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
-    dataset = ImageDataset.get_cifar10()
+    dataset = ImageDataset.get_cifar10_reduced()
 
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
     hyperparameters = Hyperparameters()
     hyperparameters.parameters['TRAIN_EPOCHS'] = 1
-    hyperparameters.parameters['TRAIN_ITERATIONS'] = 32
+    hyperparameters.parameters['NORMAL_CELL_N'] = 1
+    hyperparameters.parameters['CELL_LAYERS'] = 3
+    # hyperparameters.parameters['TRAIN_ITERATIONS'] = 32
+    hyperparameters.parameters['TRAIN_ITERATIONS'] = 1
 
     model = MetaModel(hyperparameters)
 
@@ -202,6 +205,10 @@ def test_nasnet_model_accuracy():
     model.save_metadata(dir_path)
     model.clear_model()
 
+    new_model = MetaModel.load(dir_path, model.model_name, True)
+    new_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
+    new_model.evaluate(dataset)
+
 def view_confusion_matrix():
     dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
     dataset = ImageDataset.get_cifar10()
@@ -211,9 +218,6 @@ def view_confusion_matrix():
     model = MetaModel.load(dir_path, model, True)
 
     print(model.get_confusion_matrix(dataset))
-
-
-
 
 def activations_test():
     dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5_add8_2')
@@ -242,8 +246,8 @@ def activations_test():
 
 if __name__ == '__main__':
     # activations_test()
-    # test_nasnet_model_accuracy()
-    view_confusion_matrix()
+    test_nasnet_model_accuracy()
+    # view_confusion_matrix()
     # train_models_more('test_accuracy_epochs_h5_add8_2', 'test_accuracy_epochs_h5_64', 16)
     # analyze_model_performances('test_accuracy_epochs_h5')
     # analyze_model_performances('test_accuracy_epochs_h5_add8')
