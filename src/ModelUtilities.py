@@ -1,5 +1,6 @@
 import os
 import tensorflow as tf
+import numpy as np
 
 class ModelUtilities:
     @staticmethod
@@ -15,3 +16,7 @@ class ModelUtilities:
         # tf.keras.models.save_model(keras_model, os.path.join(dir_path, model_name + '_save'))
         # keras_model.save(os.path.join(dir_path, model_name + '_save'))
         keras_model.save(os.path.join(dir_path, model_name + '.h5'))
+
+    @staticmethod
+    def softmax(val):
+        return np.exp(val) / sum(np.exp(val))

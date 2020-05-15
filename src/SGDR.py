@@ -27,7 +27,8 @@ class SGDR(tf.keras.callbacks.Callback):
         self.samples_per_restart = int((self.restart_period_decay ** self.restarts) * self.initial_samples_per_restart)
 
     def cosine_annealing(self):
-        return self.initial_minimum_learning_rate + ((0.5 * (self.maximum_learning_rate - self.initial_minimum_learning_rate)) * (1 + np.cos((self.samples_since_restart / self.samples_per_restart) * np.pi)))
+        annealed_value = self.initial_minimum_learning_rate + ((0.5 * (self.maximum_learning_rate - self.initial_minimum_learning_rate)) * (1 + np.cos((self.samples_since_restart / self.samples_per_restart) * np.pi)))
+        return annealed_value
 
     def on_train_begin(self, logs=None):
         if self.model is not None:

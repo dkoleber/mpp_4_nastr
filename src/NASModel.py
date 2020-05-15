@@ -26,7 +26,7 @@ from Hyperparameters import Hyperparameters
 from Dataset import ImageDataset, ShufflerCallback
 from ModelUtilities import *
 
-tf.compat.v1.disable_eager_execution()
+# tf.compat.v1.disable_eager_execution()
 
 
 def print_vars(vars):
@@ -291,7 +291,8 @@ class MetaModel(SerialData):
             model_input = tf.keras.Input(input_shape)
             self.keras_model = self.keras_model_data.build(model_input)
             build_time = time.time() - build_time
-            optimizer = tf.keras.optimizers.Adam(self.hyperparameters.parameters['LEARNING_RATE'])
+            # optimizer = tf.keras.optimizers.Adam(self.hyperparameters.parameters['MAXIMUM_LEARNING_RATE'])
+            optimizer = tf.keras.optimizers.SGD(self.hyperparameters.parameters['MAXIMUM_LEARNING_RATE'])
 
             compile_time = time.time()
             self.keras_model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
@@ -303,24 +304,29 @@ class MetaModel(SerialData):
             print('reusing previous keras model')
 
     def evaluate(self, dataset: ImageDataset) -> None:
-        BATCH_SIZE = 32
-        sgdr = SGDR(0.01, 0.001, BATCH_SIZE, len(dataset.train_labels),
+        batch_size = self.hyperparameters.parameters['BATCH_SIZE']
+        min_lr = self.hyperparameters.parameters['MINIMUM_LEARNING_RATE']
+        max_lr = self.hyperparameters.parameters['MAXIMUM_LEARNING_RATE']
+
+
+        sgdr = SGDR(min_lr, max_lr, batch_size, len(dataset.train_labels),
                     self.hyperparameters.parameters['SGDR_EPOCHS_PER_RESTART'],
                     self.hyperparameters.parameters['SGDR_LR_DECAY'],
                     self.hyperparameters.parameters['SGDR_PERIOD_DECAY'])
-
 
         completed_epochs = len(self.metrics.metrics['accuracy'])
         if completed_epochs != 0:
             sgdr.init_after_epochs(completed_epochs)
 
-        shuffler = ShufflerCallback(dataset) #TODO
+        callbacks = []
+        if self.hyperparameters.parameters['USE_SGDR']:
+            callbacks.append(sgdr)
 
         for iteration in range(int(self.hyperparameters.parameters['TRAIN_ITERATIONS'])):
             print(f'Starting training iteration {iteration}')
             train_time = time.time()
             for epoch_num in range(int(self.hyperparameters.parameters['TRAIN_EPOCHS'])):
-                self.keras_model.fit(dataset.train_images, dataset.train_labels, shuffle=True, batch_size=BATCH_SIZE, epochs=1, callbacks=[shuffler]) #TODO: add sgdr back in as callback
+                self.keras_model.fit(dataset.train_images, dataset.train_labels, shuffle=True, batch_size=batch_size, epochs=1, callbacks=callbacks)
             train_time = time.time() - train_time
 
             inference_time = time.time()
@@ -534,16 +540,18 @@ class MetaModel(SerialData):
     def get_confusion_matrix(self, dataset):
         predictions = self.keras_model.predict(dataset.test_images, batch_size=32)
 
-        def softmax(val):
-            return np.exp(val) / sum(np.exp(val))
-
-        predictions = softmax(predictions)
+        predictions = ModelUtilities.softmax(predictions)
         predictions = np.argmax(predictions, axis=1)
 
         matrix = tf.math.confusion_matrix(dataset.test_labels, predictions, num_classes=10)
 
-        with tf.compat.v1.Session().as_default():
-            matrix_val = matrix.eval()
+        matrix_val = None
+
+        if not tf.executing_eagerly():
+            with tf.compat.v1.Session().as_default():
+                matrix_val = matrix.eval()
+        else:
+            matrix_val = matrix.numpy()
 
         return matrix_val
 
@@ -553,7 +561,8 @@ class MetaModel(SerialData):
 
         parser = ModelParsingHelper()
 
-        first_cell_reduce = self.keras_model.get_layer(parser.get_next_name('dimensionality_reduction_operation')).get_output_at(0)
+        first_cell_reduce = self.keras_model.get_layer(parser.get_next_name('concatenate')).get_output_at(0)
+        # first_cell_reduce = tf.keras.layers.Softmax()(first_cell_reduce)
 
         outputs = [first_cell_reduce]
         outputs.extend(self.keras_model.outputs)
@@ -799,7 +808,7 @@ class FactorizedReductionOperation(KerasOperation):
 
 class DimensionalityChangeOperation(KerasOperation):
     def __init__(self, input_dim: int, output_dim: int, stride: int = 1, **kwargs):
-        super().__init__(input_dim, output_dim, 1, **kwargs)
+        super().__init__(input_dim, output_dim, stride, **kwargs)
 
         self.reduction = tf.keras.layers.Conv2D(output_dim, 1, self.stride, 'same')
         self.activation = Relu6Layer()
@@ -845,7 +854,7 @@ class IdentityOperation(KerasOperation):
 
 
 class DenseOperation(KerasOperation):
-    def __init__(self, input_dim: int, output_dim: int, dropout_rate: float = 1, stride: int = 1, **kwargs):
+    def __init__(self, input_dim: int, output_dim: int, dropout_rate: float = 1., stride: int = 1, **kwargs):
         # if len(kwargs) > 0: #TODO: REMOVE?
         #     super().__init__(output_dim, **kwargs)
         # else:
@@ -855,9 +864,11 @@ class DenseOperation(KerasOperation):
         self.dense_layer = tf.keras.layers.Dense(output_dim)
         self.dropout_rate = dropout_rate
 
+    @tf.function
     def call(self, inputs, training=False, mask=None):
         layer = inputs
         if training:
+            print('training dense op')
             layer = self.dropout_layer(layer)
         layer = self.dense_layer(layer)
 
@@ -877,6 +888,24 @@ class DenseOperation(KerasOperation):
         parser.get_next_name('dropout')
         parser.get_next_name('dense')
 
+class DropPathOperation(KerasOperation):
+    def __init__(self, input_dim: int, output_dim: int, dropout_rate: float = 1., stride: int = 1, **kwargs):
+        super().__init__(input_dim, output_dim, 1, **kwargs)
+
+        self.dropout_rate = dropout_rate
+
+    def cell(self, inputs, training=False, mask=None):
+        layer = inputs
+        if training:
+            batch_size = tf.shape(input=inputs)[0]
+            noise_shape = [batch_size, 1, 1, 1]
+            random_tensor = self.dropout_rate
+            random_tensor += tf.random.uniform(noise_shape, dtype=tf.float32)
+            binary_tensor = tf.cast(tf.floor(random_tensor), inputs.dtype)
+            keep_prob_inv = tf.cast(1.0 / self.dropout_rate, inputs.dtype)
+            layer = layer * keep_prob_inv * binary_tensor
+
+        return layer
 
 class KerasOperationFactory:
     @staticmethod
@@ -938,9 +967,10 @@ class GroupDataHolder:
 
 
 class CellDataHolder:
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
+    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
         self.target_dim = target_dim
         self.input_dim = input_dim
+        self.reduce_current = reduce_current
 
         # target dim is the dimension that we want the groups to be outputting
         # input dim is the dimension that the previous cell produced
@@ -976,17 +1006,22 @@ class CellDataHolder:
             if len(self.unused_group_indexes) > 1:
                 self.post_concat = tf.keras.layers.Concatenate(axis=3)
 
-            if self.output_dim != self.input_dim:
+            if not self.reduce_current and self.output_dim != self.input_dim: #reduce residual to current output
                 self.post_dim_change = DimensionalityChangeOperation(self.input_dim, self.output_dim)
+
+            if self.reduce_current and self.output_dim != self.target_dim:
+                self.post_dim_change = DimensionalityChangeOperation(self.output_dim, self.target_dim)
+                self.output_dim = self.target_dim
 
         else:
             if len(self.unused_group_indexes) > 1:
                 self.post_concat = keras_model.get_layer(parser.get_next_name('concatenate'))
 
-            if self.output_dim != self.input_dim:
+            if (not self.reduce_current and self.output_dim != self.input_dim) or (self.reduce_current and self.output_dim != self.target_dim):
                 try:
                     self.post_dim_change = keras_model.get_layer(parser.get_next_name('dimensionality_change_operation'))
                     self.post_dim_change.add_self_to_parser_counts(parser)
+
                 except:
                     # this can occur if this is the last cell in the network.
                     # Since the reduced residual isn't actually used in the output, then it's not serialized with the model
@@ -995,6 +1030,9 @@ class CellDataHolder:
                     temp_dim = DimensionalityChangeOperation(1, 1)
                     temp_dim.add_self_to_parser_counts(parser)
                     pass
+
+                if self.reduce_current:
+                    self.output_dim = self.target_dim
 
 
 
@@ -1014,35 +1052,72 @@ class CellDataHolder:
 
         previous_result = None
 
-        if self.output_dim != self.input_dim and self.post_dim_change is not None:
+        if not self.reduce_current and self.post_dim_change is not None:
             previous_result = self.post_dim_change(inputs[0])
         else:
             previous_result = inputs[0]
+
+        if self.reduce_current and self.post_dim_change is not None:
+            result = self.post_dim_change(result)
 
         results = [result, previous_result]
         return results
 
 
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
-        super().__init__(input_dim, target_dim, meta_cell, parser, keras_model)
+    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None, expansion_factor: int = 1, reduce_before: bool = False):
+        self.expansion_factor = expansion_factor
+        self.reduce_before = reduce_before
 
-        # self.output_size *= 2
+        target_dim_to_pass = target_dim
+        if reduce_before:
+            target_dim_to_pass *= self.expansion_factor
+
+        super().__init__(input_dim, target_dim_to_pass, meta_cell, reduce_current, parser, keras_model)
 
         if keras_model is None: #TODO: factorized reduction
-            self.post_reduce_current = tf.keras.layers.Conv2D(self.output_dim, 3, 2, 'same')
-            self.post_reduce_previous = tf.keras.layers.Conv2D(self.output_dim, 3, 2, 'same')
+            if self.expansion_factor != 1:
+                if self.reduce_before:
+                    self.dim_change_current = DimensionalityChangeOperation(self.input_dim, self.target_dim)
+                    self.dim_change_previous = DimensionalityChangeOperation(self.input_dim, self.target_dim)
+                else:
+                    expanded_dim = self.output_dim * self.expansion_factor
+                    self.dim_change_current = DimensionalityChangeOperation(self.output_dim, expanded_dim)
+                    self.dim_change_previous = DimensionalityChangeOperation(self.output_dim, expanded_dim)
+                    self.output_dim = expanded_dim
+
+            self.reduce_current = tf.keras.layers.Conv2D(self.output_dim, 3, 2, 'same')
+            self.reduce_previous = tf.keras.layers.Conv2D(self.output_dim, 3, 2, 'same')
 
         else:
-            self.post_reduce_current = keras_model.get_layer(parser.get_next_name('conv2d'))
-            self.post_reduce_previous = keras_model.get_layer(parser.get_next_name('conv2d'))
+            if self.expansion_factor != 1:
+                self.dim_change_current = keras_model.get_layer(parser.get_next_name('dimensionality_change_operation'))
+                self.dim_change_previous = keras_model.get_layer(parser.get_next_name('dimensionality_change_operation'))
+                self.dim_change_current.add_self_to_parser_counts(parser)
+                self.dim_change_previous.add_self_to_parser_counts(parser)
+
+            if not self.reduce_before:
+                expanded_dim = self.output_dim * self.expansion_factor
+                self.output_dim = expanded_dim
+
+            self.reduce_current = keras_model.get_layer(parser.get_next_name('conv2d'))
+            self.reduce_previous = keras_model.get_layer(parser.get_next_name('conv2d'))
 
 
     def build(self, inputs):
-        [current_result, previous_cell_result] = super().build(inputs)
-        downsize_current = self.post_reduce_current(current_result)
-        downsize_previous = self.post_reduce_previous(previous_cell_result)
-        return [downsize_current, downsize_previous]
+        # inputs are [current values, residual/previous values]
+        values = inputs
+
+        if self.reduce_before and self.expansion_factor != 1:
+            values = [self.dim_change_current(values[0]), self.dim_change_previous(values[1])]
+
+        values = super().build(values)
+
+        if not self.reduce_before and self.expansion_factor != 1:
+            values = [self.dim_change_current(values[0]), self.dim_change_previous(values[1])]
+
+        values = [self.reduce_current(values[0]), self.reduce_previous(values[1])]
+        return values
 
 
 class ModelParsingHelper:
@@ -1109,28 +1184,30 @@ class ModelDataHolder:
         if len(meta_model.cells) == 0:
             print('Error: no cells in meta model. Did you forget to populate it with cells?')
 
+        self.expansion_factor = meta_model.hyperparameters.parameters['REDUCTION_EXPANSION_FACTOR']
+        self.reduce_current = meta_model.hyperparameters.parameters['REDUCE_CURRENT']
+        self.reduction_expansion_before = meta_model.hyperparameters.parameters['REDUCTION_EXPANSION_BEFORE']
+        target_dim = meta_model.hyperparameters.parameters['TARGET_FILTER_DIMS']
+        previous_dim = target_dim
+
+        self.cells: List[CellDataHolder] = []
 
         if keras_model is None:
-            initial_dim = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
-            target_dim = meta_model.hyperparameters.parameters['TARGET_FILTER_DIMS']
-            previous_dim = initial_dim
-
-            self.cells: List[CellDataHolder] = []
-
-            self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'same')
+            self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'valid')
             self.initial_norm = tf.keras.layers.BatchNormalization()
 
             for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
                 for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0])
+                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
                 if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1])
+                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current,
+                                                   expansion_factor=self.expansion_factor,
+                                                   reduce_before=self.reduction_expansion_before)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
-
-
+                    target_dim *= self.expansion_factor
 
             self.final_flatten = tf.keras.layers.Flatten()
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
@@ -1138,12 +1215,6 @@ class ModelDataHolder:
             # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
             self.final_dense = DenseOperation(target_dim, 10, .5)
         else:
-            initial_dim = meta_model.hyperparameters.parameters['INITIAL_LAYER_DIMS']
-            target_dim = meta_model.hyperparameters.parameters['TARGET_FILTER_DIMS']
-            previous_dim = initial_dim
-
-            self.cells: List[CellDataHolder] = []
-
             parser = ModelParsingHelper()
 
             self.initial_resize = keras_model.get_layer(parser.get_next_name('conv2d'))
@@ -1151,13 +1222,16 @@ class ModelDataHolder:
 
             for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
                 for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], parser, keras_model)
+                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, parser, keras_model)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
                 if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], parser, keras_model)
+                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, parser, keras_model,
+                                                   expansion_factor=self.expansion_factor,
+                                                   reduce_before=self.reduction_expansion_before)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
+                    target_dim *= self.expansion_factor
 
 
             self.final_flatten = tf.keras.layers.Flatten()
@@ -1239,12 +1313,6 @@ class ModelDataHolder:
         output = self.final_dense(output)
 
         return tf.keras.Model(inputs=inputs, outputs=output)
-
-
-
-
-
-
 
 
 if __name__ == '__main__':

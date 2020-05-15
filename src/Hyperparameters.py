@@ -36,16 +36,21 @@ class Hyperparameters(SerialData):
 
                 'NORMAL_CELL_N': 5,
                 'CELL_LAYERS': 3,
-                'INITIAL_LAYER_DIMS': 32,
                 'TARGET_FILTER_DIMS': 32,
+                'REDUCTION_EXPANSION_FACTOR' : 1,
+                'REDUCTION_EXPANSION_BEFORE': False,
+                'REDUCE_CURRENT': False,
 
-                'TRAIN_EPOCHS': 2,
-                'TRAIN_ITERATIONS': 2,
-                'LEARNING_RATE': 0.01,
+                'TRAIN_EPOCHS': 1,
+                'TRAIN_ITERATIONS': 16,
+                'MAXIMUM_LEARNING_RATE': 0.002,
+                'MINIMUM_LEARNING_RATE': 0.001,
+                'USE_SGDR': True,
+                'BATCH_SIZE': 16,
 
-                'SGDR_EPOCHS_PER_RESTART': 1.5,
-                'SGDR_LR_DECAY': .95,
-                'SGDR_PERIOD_DECAY': 1.05,
+                'SGDR_EPOCHS_PER_RESTART': 16,
+                'SGDR_LR_DECAY': .8,
+                'SGDR_PERIOD_DECAY': 2,
 
                 'IDENTITY_THRESHOLD': 0.,  # .33
             }
@@ -59,9 +64,10 @@ class Hyperparameters(SerialData):
 
                 'TRAIN_EPOCHS': 1,
                 'TRAIN_ITERATIONS': 2,
-                'LEARNING_RATE': 0.01,
+                'LEARNING_RATE': 0.001,
+                'USE_SGDR': True,
 
-                'SGDR_EPOCHS_PER_RESTART': 1.5,
+                'SGDR_EPOCHS_PER_RESTART': 3,
                 'SGDR_LR_DECAY': .95,
                 'SGDR_PERIOD_DECAY': 1.05,
 

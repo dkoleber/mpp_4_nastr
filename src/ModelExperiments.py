@@ -110,6 +110,7 @@ def train_models_more(dir_name_in, dir_name_out, extra_epochs):
         model = MetaModel.load(in_dir_path, sample, True)
         init_iterations = model.hyperparameters.parameters['TRAIN_ITERATIONS']
         model.hyperparameters.parameters['TRAIN_ITERATIONS'] = extra_epochs
+        # model.hyperparameters.parameters['USE_SGDR'] = False
         model.evaluate(dataset)
         model.hyperparameters.parameters['TRAIN_ITERATIONS'] += init_iterations
         model.save_model(out_dir_path)
@@ -160,19 +161,16 @@ def analyze_model_performances(dir_name):
     get_stats(accuracies)
 
 
-def test_nasnet_model_accuracy():
-    dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
-    dataset = ImageDataset.get_cifar10_reduced()
+def test_nasnet_model_accuracy(nasnet_path):
+    dir_path = os.path.join(evo_dir, nasnet_path)
+    # dataset = ImageDataset.get_cifar10_reduced()
+    dataset = ImageDataset.get_cifar10()
 
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
     hyperparameters = Hyperparameters()
-    hyperparameters.parameters['TRAIN_EPOCHS'] = 1
-    hyperparameters.parameters['NORMAL_CELL_N'] = 1
-    hyperparameters.parameters['CELL_LAYERS'] = 3
-    # hyperparameters.parameters['TRAIN_ITERATIONS'] = 32
-    hyperparameters.parameters['TRAIN_ITERATIONS'] = 1
+    hyperparameters.parameters['TRAIN_ITERATIONS'] = 8
 
     model = MetaModel(hyperparameters)
 
@@ -205,38 +203,80 @@ def test_nasnet_model_accuracy():
     model.save_metadata(dir_path)
     model.clear_model()
 
-    new_model = MetaModel.load(dir_path, model.model_name, True)
-    new_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
-    new_model.evaluate(dataset)
+    # new_model = MetaModel.load(dir_path, model.model_name, True)
+    # new_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
+    # new_model.evaluate(dataset)
 
 def view_confusion_matrix():
-    dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
+    dir_path = os.path.join(evo_dir, 'nasnet_arch_test_2')
     dataset = ImageDataset.get_cifar10()
 
-    model = os.listdir(dir_path)[0]
+    model = os.listdir(dir_path)[-1]
 
     model = MetaModel.load(dir_path, model, True)
 
     print(model.get_confusion_matrix(dataset))
 
+
 def activations_test():
-    dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5_add8_2')
-    model_names = [x for x in os.listdir(dir_path) if '.csv' not in x and 'small' not in x and '.png' not in x]
+    # dir_path = os.path.join(evo_dir, 'test_accuracy_epochs_h5_add8_2')
+    # model_names = [x for x in os.listdir(dir_path) if '.csv' not in x and 'small' not in x and '.png' not in x]
+    dir_path = os.path.join(evo_dir, 'nasnet_arch_test_bigger_shuffled')
+    model_name = os.listdir(dir_path)[-1]
+
 
     dataset = ImageDataset.get_cifar10()
 
-    model = MetaModel.load(dir_path, model_names[0], True)
+    model = MetaModel.load(dir_path, model_name, True)
     activations_model = model.activation_viewer()
 
-    predictions = activations_model.predict(dataset.images[:1])
+    images_to_sample = 10000
 
-    print(predictions[0].shape)
-    feature_1 = np.mean(predictions[0][0, :, :, :], axis=2)
+
+    print(f'--Predicting test images--')
+    predictions = activations_model.predict(dataset.test_images[:images_to_sample,:])
+    print(f'--Finished predicting test images--')
+    # print(predictions[0].shape)
+
+    vals = predictions[0]
+
+    def norm(x):
+        max_val = np.amax(x)
+        norm_factor = 1. / max_val
+        return x * norm_factor
+
+    def reverse_rms(x):
+        return np.sqrt(np.mean((x - 1) ** 2, axis=3))
+    def rms(x):
+        return np.sqrt(np.mean(x ** 2, axis=3))
+    def ms(x):
+        return np.mean(x ** 2, axis=3)
+
+    # vals =  rms(vals)
+    vals = ms(vals)
+    vals = norm(vals)
+
+    features_per_image = vals
+
+    features_sorted_by_class = [[] for x in range(10)]
+
+    for index in range(len(dataset.test_labels[:images_to_sample,:])):
+        # print(dataset.test_labels[index, 0])
+        # print([len(x) for x in features_sorted_by_class])
+        features_sorted_by_class[dataset.test_labels[index, 0]].append(features_per_image[index, :, :])
+
+    features_sorted_by_class = [np.array(x) for x in features_sorted_by_class]
+
+    mean_feature_per_class = [np.mean(x, axis=0) for x in features_sorted_by_class]
+
+    # print(f'mean shape {mean_feature_per_class.shape}')
+
+    mean_feature_per_class = [np.tanh(x) for x in mean_feature_per_class]
+
+    feature_1 = mean_feature_per_class[2]
 
     scale = 10
     resize = (feature_1.shape[0] * scale, feature_1.shape[1] * scale)
-    print(resize)
-
     img = cv2.resize(feature_1, resize, interpolation=cv2.INTER_NEAREST)
 
     cv2.imshow('predictions', img)
@@ -244,10 +284,64 @@ def activations_test():
     cv2.destroyAllWindows()
 
 
+def cell_performance_test():
+
+    hyperparameters = Hyperparameters()
+
+    dataset = ImageDataset.get_cifar10()
+
+    def get_sorted(images, labels):
+        sorted_by_class = [[] for _ in range(10)]
+        for index in range(len(images)):
+            sorted_by_class[labels[index,0]].append(images[index,:,:])
+
+    sorted_train = get_sorted(dataset.train_images, dataset.train_labels)
+    sorted_test = get_sorted(dataset.test_images, dataset.test_labels)
+
+    model = MetaModel(hyperparameters)
+
+    model.populate_with_nasnet_metacells()
+    # model.build_model(dataset.images_shape)
+    first_cell = CellDataHolder(3, 3, model.cells[0])
+
+    cell_input = tf.keras.Input(dataset.images_shape)
+    cell_output = first_cell.build([cell_input, cell_input])
+    cell_model = tf.keras.Model(inputs=cell_input, outputs=cell_output)
+
+    def gram_matrix(input_tensor):
+        result = tf.linalg.einsum('bijc,bijd->bcd', input_tensor, input_tensor)
+        input_shape = tf.shape(input_tensor)
+        num_locations = tf.cast(input_shape[1] * input_shape[2], tf.float32)
+        return result / (num_locations)
+
+    optimizer = tf.keras.optimizers.Adam(learning_rate=hyperparameters.parameters['LEARNING_RATE'])
+
+    def loss(real_image, fake_image, output):
+        real_maximize = None # TODO: INNER PROUDCT
+        fake_minimize = None
+
+    def train_step(input_image_1, input_image_2):
+        with tf.GradientTape() as tape:
+            image_1_output = cell_model(input_image_1)
+            image_2_output = cell_model(input_image_2)
+
+            total_loss = loss(input_image_1, input_image_2, image_1_output) + loss(input_image_2, input_image_1, image_2_output)
+
+        gradient = tape.gradient(loss, cell_model.trainable_variables)
+        optimizer.apply_gradients(zip(gradient, cell_model.trainable_variables))
+
+
+    #minmize/maximize the determinent of the gram matrix for the positive, and minimize for the negative
+
+
 if __name__ == '__main__':
-    # activations_test()
-    test_nasnet_model_accuracy()
+    test_nasnet_model_accuracy('nasnet_arch_test_sgd_dropout')
     # view_confusion_matrix()
+    # activations_test()
+    # train_models_more('nasnet_arch_test', 'nasnet_arch_test_2', 8)
+    # train_models_more('nasnet_arch_test_2', 'nasnet_arch_test_3', 8)
+    # train_models_more('nasnet_arch_test_sgd', 'nasnet_arch_test_sgd_2', 16)
+
     # train_models_more('test_accuracy_epochs_h5_add8_2', 'test_accuracy_epochs_h5_64', 16)
     # analyze_model_performances('test_accuracy_epochs_h5')
     # analyze_model_performances('test_accuracy_epochs_h5_add8')
