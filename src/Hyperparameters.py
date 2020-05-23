@@ -42,7 +42,7 @@ class Hyperparameters(SerialData):
                 'REDUCE_CURRENT': False,
 
                 'TRAIN_EPOCHS': 1,
-                'TRAIN_ITERATIONS': 16,
+                'TRAIN_ITERATIONS': 32,
                 'MAXIMUM_LEARNING_RATE': 0.002,
                 'MINIMUM_LEARNING_RATE': 0.001,
                 'USE_SGDR': True,
@@ -51,6 +51,8 @@ class Hyperparameters(SerialData):
                 'SGDR_EPOCHS_PER_RESTART': 16,
                 'SGDR_LR_DECAY': .8,
                 'SGDR_PERIOD_DECAY': 2,
+
+                'DROP_PATH_CHANCE': .6,
 
                 'IDENTITY_THRESHOLD': 0.,  # .33
             }

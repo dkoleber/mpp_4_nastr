@@ -170,7 +170,6 @@ def test_nasnet_model_accuracy(nasnet_path):
         os.makedirs(dir_path)
 
     hyperparameters = Hyperparameters()
-    hyperparameters.parameters['TRAIN_ITERATIONS'] = 8
 
     model = MetaModel(hyperparameters)
 
@@ -284,7 +283,7 @@ def activations_test():
     cv2.destroyAllWindows()
 
 
-def cell_performance_test():
+def cell_performance_test_1():
 
     hyperparameters = Hyperparameters()
 
@@ -334,8 +333,50 @@ def cell_performance_test():
     #minmize/maximize the determinent of the gram matrix for the positive, and minimize for the negative
 
 
+def cell_performance_test_2():
+    hyperparameters = Hyperparameters()
+
+    model = MetaModel(hyperparameters)
+
+    dataset = ImageDataset.get_cifar10()
+
+    model.populate_with_nasnet_metacells()
+    # model.build_model(dataset.images_shape)
+    first_cell = CellDataHolder(3, 3, model.cells[0], 0)
+
+    cell_input = tf.keras.Input(dataset.images_shape)
+    cell_input = tf.keras.layers.Conv2D(hyperparameters.parameters['TARGET_FILTER_DIMS'], 1, 1, 'same')(cell_input)
+    cell_output = first_cell.build([cell_input, cell_input])
+    cell_output = tf.keras.layers.Dense(10)(cell_output)
+    cell_model = tf.keras.Model(inputs=cell_input, outputs=cell_output)
+
+    optimizer = tf.keras.optimizers.Adam(learning_rate=hyperparameters.parameters['LEARNING_RATE'])
+
+
+
+
+
+
+def test_load(nasnet_path):
+    dir_path = os.path.join(evo_dir, nasnet_path)
+    dataset = ImageDataset.get_cifar10_reduced()
+    # dataset = ImageDataset.get_cifar10()
+
+    model_name = os.listdir(dir_path)[-1]
+
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+    hyperparameters = Hyperparameters()
+
+
+    new_model = MetaModel.load(dir_path, model_name, True)
+    # new_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
+    new_model.evaluate(dataset)
+
 if __name__ == '__main__':
     test_nasnet_model_accuracy('nasnet_arch_test_sgd_dropout')
+    # test_load('nasnet_arch_test_sgd_dropout')
     # view_confusion_matrix()
     # activations_test()
     # train_models_more('nasnet_arch_test', 'nasnet_arch_test_2', 8)

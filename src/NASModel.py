@@ -13,7 +13,7 @@ import copy
 
 from graphviz import Digraph
 import os
-
+import math
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -308,7 +308,6 @@ class MetaModel(SerialData):
         min_lr = self.hyperparameters.parameters['MINIMUM_LEARNING_RATE']
         max_lr = self.hyperparameters.parameters['MAXIMUM_LEARNING_RATE']
 
-
         sgdr = SGDR(min_lr, max_lr, batch_size, len(dataset.train_labels),
                     self.hyperparameters.parameters['SGDR_EPOCHS_PER_RESTART'],
                     self.hyperparameters.parameters['SGDR_LR_DECAY'],
@@ -318,9 +317,12 @@ class MetaModel(SerialData):
         if completed_epochs != 0:
             sgdr.init_after_epochs(completed_epochs)
 
-        callbacks = []
+        callbacks = [self.keras_model_data.drop_path_tracker]
         if self.hyperparameters.parameters['USE_SGDR']:
             callbacks.append(sgdr)
+
+        # print(self.keras_model.summary(line_length=200))
+        # print(self.keras_model.non_trainable_variables)
 
         for iteration in range(int(self.hyperparameters.parameters['TRAIN_ITERATIONS'])):
             print(f'Starting training iteration {iteration}')
@@ -423,7 +425,8 @@ class MetaModel(SerialData):
                 'IdentityReductionOperation': IdentityReductionOperation,
                 'IdentityOperation': IdentityOperation,
                 'DenseOperation': DenseOperation,
-                'Relu6Layer': Relu6Layer
+                'Relu6Layer': Relu6Layer,
+                'DropPathOperation': DropPathOperation
             }
             self.keras_model = ModelUtilities.load_keras_model(dir_name, self.model_name, custom_objects)
             # print(self.keras_model.summary(line_length=200))
@@ -868,7 +871,6 @@ class DenseOperation(KerasOperation):
     def call(self, inputs, training=False, mask=None):
         layer = inputs
         if training:
-            print('training dense op')
             layer = self.dropout_layer(layer)
         layer = self.dense_layer(layer)
 
@@ -888,24 +890,60 @@ class DenseOperation(KerasOperation):
         parser.get_next_name('dropout')
         parser.get_next_name('dense')
 
-class DropPathOperation(KerasOperation):
-    def __init__(self, input_dim: int, output_dim: int, dropout_rate: float = 1., stride: int = 1, **kwargs):
-        super().__init__(input_dim, output_dim, 1, **kwargs)
 
-        self.dropout_rate = dropout_rate
+class DropPathOperation(tf.keras.layers.Layer):
+    def __init__(self, cell_position_as_ratio: float, drop_path_tracker: DropPathTracker = None, **kwargs):
+        super().__init__(**kwargs)
 
-    def cell(self, inputs, training=False, mask=None):
+        self.drop_path_tracker = drop_path_tracker
+        self.cell_position_as_ratio = cell_position_as_ratio
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'cell_position_as_ratio': self.cell_position_as_ratio
+        })
+        return config
+
+    @tf.function
+    def calculate_drop_path(self, inputs, chance):
         layer = inputs
-        if training:
-            batch_size = tf.shape(input=inputs)[0]
-            noise_shape = [batch_size, 1, 1, 1]
-            random_tensor = self.dropout_rate
-            random_tensor += tf.random.uniform(noise_shape, dtype=tf.float32)
-            binary_tensor = tf.cast(tf.floor(random_tensor), inputs.dtype)
-            keep_prob_inv = tf.cast(1.0 / self.dropout_rate, inputs.dtype)
-            layer = layer * keep_prob_inv * binary_tensor
+
+        batch_size = tf.shape(input=inputs)[0]
+        noise_shape = [batch_size, 1, 1, 1]
+        random_tensor = chance
+        random_tensor += tf.random.uniform(noise_shape, dtype=tf.float32)
+        binary_tensor = tf.cast(tf.floor(random_tensor), inputs.dtype)
+        keep_prob_inv = tf.cast(1.0 / chance, inputs.dtype)
+        layer = layer * keep_prob_inv * binary_tensor
 
         return layer
+
+    @tf.function
+    def scale_chance_by_cell(self, chance):
+        return 1 - self.cell_position_as_ratio * (1 - chance)
+
+    @tf.function
+    def scale_chance_by_steps(self, chance):
+        ratio = tf.divide(self.drop_path_tracker.global_step, self.drop_path_tracker.total_steps)
+        ratio = tf.cast(ratio, tf.float32)
+        ratio = tf.minimum(1.0, ratio)
+        return 1 - ratio * (1 - chance)
+
+    @tf.function
+    def call(self, inputs, training=False, mask=None):
+        layer = inputs
+        if training:
+            base_chance = self.drop_path_tracker.drop_path_chance if self.drop_path_tracker is not None else 1.
+
+            if base_chance < 1.0:
+                chance = self.scale_chance_by_cell(base_chance)
+                chance = self.scale_chance_by_steps(chance)
+                layer = self.calculate_drop_path(layer, chance)
+            # layer = tf.cond(base_chance < 1.0, layer, )
+
+        return layer
+
 
 class KerasOperationFactory:
     @staticmethod
@@ -932,12 +970,15 @@ class KerasOperationFactory:
 
 
 class GroupDataHolder:
-    def __init__(self, input_dim: int, target_dim: int, meta_group: MetaGroup, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
+    def __init__(self, input_dim: int, target_dim: int, meta_group: MetaGroup, drop_path_tracker: DropPathTracker, cell_position_as_ratio: float, parser: ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
         self.input_dim = input_dim
         self.target_dim = target_dim
+        self.drop_path_tracker = drop_path_tracker
 
         self.ops = []
         self.attachments: List[int] = []
+
+        self.op_types = [x.operation_type for x in meta_group.operations]
 
         if keras_model is None:
 
@@ -946,6 +987,11 @@ class GroupDataHolder:
                 self.attachments.append(op.actual_attachment)
 
             self.addition_layer = tf.keras.layers.Add()
+            self.drop_path_ops = [
+                DropPathOperation(cell_position_as_ratio, drop_path_tracker),
+                DropPathOperation(cell_position_as_ratio, drop_path_tracker)
+            ]
+
 
         else:
 
@@ -957,17 +1003,24 @@ class GroupDataHolder:
                 self.attachments.append(op.actual_attachment)
 
             self.addition_layer = keras_model.get_layer(parser.get_next_name('add'))
+            self.drop_path_ops = [
+                DropPathOperation(cell_position_as_ratio, drop_path_tracker),
+                DropPathOperation(cell_position_as_ratio, drop_path_tracker)
+            ] #TODO
 
     def build(self, inputs):
         results = []
         for index, obj in enumerate(self.ops):
-            results.append(obj(inputs[self.attachments[index]]))
+            op = obj(inputs[self.attachments[index]])
+            if self.op_types[index] != OperationType.IDENTITY:
+                op = self.drop_path_ops[index](op)
+            results.append(op)
 
         return self.addition_layer(results)
 
 
 class CellDataHolder:
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
+    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, drop_path_tracker: DropPathTracker, cell_position_as_ratio, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
         self.target_dim = target_dim
         self.input_dim = input_dim
         self.reduce_current = reduce_current
@@ -986,13 +1039,13 @@ class CellDataHolder:
 
         if keras_model is None:
             for group in meta_cell.groups:
-                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group))
+                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, drop_path_tracker, cell_position_as_ratio))
                 for op in group.operations:
                     used_group_indexes.append(op.actual_attachment)
 
         else:
             for group in meta_cell.groups:
-                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, parser, keras_model))
+                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, drop_path_tracker, cell_position_as_ratio, parser, keras_model))
                 for op in group.operations:
                     used_group_indexes.append(op.actual_attachment)
 
@@ -1065,7 +1118,7 @@ class CellDataHolder:
 
 
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None, expansion_factor: int = 1, reduce_before: bool = False):
+    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, drop_path_tracker: DropPathTracker, cell_position_as_ratio, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None, expansion_factor: int = 1, reduce_before: bool = False):
         self.expansion_factor = expansion_factor
         self.reduce_before = reduce_before
 
@@ -1073,7 +1126,7 @@ class ReductionCellDataHolder(CellDataHolder):
         if reduce_before:
             target_dim_to_pass *= self.expansion_factor
 
-        super().__init__(input_dim, target_dim_to_pass, meta_cell, reduce_current, parser, keras_model)
+        super().__init__(input_dim, target_dim_to_pass, meta_cell, reduce_current, drop_path_tracker, cell_position_as_ratio, parser, keras_model)
 
         if keras_model is None: #TODO: factorized reduction
             if self.expansion_factor != 1:
@@ -1179,10 +1232,33 @@ class ModelParsingHelper:
         return self.get_next_name(ModelParsingHelper.get_op_name(op, input_dim != output_dim))
 
 
+class DropPathTracker(tf.keras.callbacks.Callback):
+    def __init__(self, base_drop_path_chance: float, steps_so_far: int, max_steps: int):
+        super().__init__()
+        self.drop_path_chance = tf.Variable(1., trainable=False, dtype=tf.float32)
+        self.global_step = tf.Variable(1, trainable=False, dtype=tf.int32)
+        self.total_steps = tf.constant(max_steps, dtype=tf.int32)
+
+        self.base_drop_path_chance = base_drop_path_chance
+        self.drop_path_chance.assign(1.0)
+
+        self.global_step.assign(steps_so_far)
+
+    def on_train_begin(self, logs=None):
+        self.drop_path_chance.assign(self.base_drop_path_chance)
+
+    def on_train_end(self, logs=None):
+        self.drop_path_chance.assign(1.0)
+
+    def on_batch_end(self, batch, logs=None):
+        self.global_step.assign_add(1)
+
+
 class ModelDataHolder:
     def __init__(self, meta_model:MetaModel, keras_model:tf.keras.models.Model = None):
         if len(meta_model.cells) == 0:
             print('Error: no cells in meta model. Did you forget to populate it with cells?')
+            return
 
         self.expansion_factor = meta_model.hyperparameters.parameters['REDUCTION_EXPANSION_FACTOR']
         self.reduce_current = meta_model.hyperparameters.parameters['REDUCE_CURRENT']
@@ -1190,19 +1266,38 @@ class ModelDataHolder:
         target_dim = meta_model.hyperparameters.parameters['TARGET_FILTER_DIMS']
         previous_dim = target_dim
 
+        num_cell_layers = meta_model.hyperparameters.parameters['CELL_LAYERS']
+        num_normal_cells_per_layer = meta_model.hyperparameters.parameters['NORMAL_CELL_N']
+
+
+        steps_per_epoch = math.ceil(50000 / meta_model.hyperparameters.parameters['BATCH_SIZE'])
+        steps_so_far = (len(meta_model.metrics.metrics['accuracy']) * meta_model.hyperparameters.parameters['TRAIN_EPOCHS']) * steps_per_epoch
+        total_steps = meta_model.hyperparameters.parameters['TRAIN_ITERATIONS'] * meta_model.hyperparameters.parameters['TRAIN_EPOCHS'] * steps_per_epoch
+        self.drop_path_tracker = DropPathTracker(meta_model.hyperparameters.parameters['DROP_PATH_CHANCE'], steps_so_far, total_steps)
+
         self.cells: List[CellDataHolder] = []
+
+        current_cell_count = 0
+        total_cells_count = (num_cell_layers * num_normal_cells_per_layer) + (num_cell_layers - 1)
+
+        def get_cell_position_as_ratio():
+            nonlocal current_cell_count
+            nonlocal total_cells_count
+            result = (current_cell_count + 1) / total_cells_count
+            current_cell_count += 1
+            return result
 
         if keras_model is None:
             self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'valid')
             self.initial_norm = tf.keras.layers.BatchNormalization()
 
-            for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
-                for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current)
+            for layer in range(num_cell_layers):
+                for normal_cells in range(num_normal_cells_per_layer):
+                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio())
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
-                if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current,
+                if layer != num_cell_layers - 1:
+                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
                                                    expansion_factor=self.expansion_factor,
                                                    reduce_before=self.reduction_expansion_before)
                     self.cells.append(cell)
@@ -1213,20 +1308,24 @@ class ModelDataHolder:
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
             self.final_activation = Relu6Layer()
             # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
-            self.final_dense = DenseOperation(target_dim, 10, .5)
+            self.final_dense = DenseOperation(target_dim, 10, .5) #TODO: remove dropout chance?
         else:
             parser = ModelParsingHelper()
 
             self.initial_resize = keras_model.get_layer(parser.get_next_name('conv2d'))
             self.initial_norm = keras_model.get_layer(parser.get_next_name('batch_normalization'))
 
-            for layer in range(meta_model.hyperparameters.parameters['CELL_LAYERS']):
-                for normal_cells in range(meta_model.hyperparameters.parameters['NORMAL_CELL_N']):
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, parser, keras_model)
+            for layer in range(num_cell_layers):
+                for normal_cells in range(num_normal_cells_per_layer):
+                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
+                                          parser,
+                                          keras_model)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
-                if layer != meta_model.hyperparameters.parameters['CELL_LAYERS'] - 1:
-                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, parser, keras_model,
+                if layer != num_cell_layers - 1:
+                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
+                                                   parser,
+                                                   keras_model,
                                                    expansion_factor=self.expansion_factor,
                                                    reduce_before=self.reduction_expansion_before)
                     self.cells.append(cell)
