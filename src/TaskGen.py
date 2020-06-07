@@ -1,29 +1,22 @@
-from enum import Enum
+from __future__ import annotations
+from enum import Enum, IntEnum
 
 from PIL import Image, ImageDraw, ImageEnhance
 import numpy as np
 import math
 from typing import List, Tuple
 import os
+import cv2
 
+from Dataset import ImageDataset
 from FileManagement import *
+from Utils import *
 
-'''
-each dataset has a set of attributes:
-- image size
-- number of classes
-- object modifiers:
-    - distortion/perspective shifting
-    - size alteration
-- number of non-class objects
-    - depth of class image among other objects
+def place(orig_img, new_img, coord) -> None:
+    new_size = (new_img.size[0] + coord[0], new_img.size[1] + coord[1])
+    shifted_image = new_img.transform(new_size, Image.AFFINE, (1, 0, -coord[0], 0, 1, -coord[1]))
+    orig_img.alpha_composite(shifted_image)
 
-
-each image has N classes
-
-each image set has X possible 
-
-'''
 
 def find_coeffs(pa, pb):
     matrix = []
@@ -39,18 +32,30 @@ def find_coeffs(pa, pb):
     return np.array(res).reshape(8)
 
 
-
 def get_random_color() -> Tuple:
-    return tuple((np.random.random(3)*255).astype(int))
+    return (get_random_int(360, 0), 100, 100) #hsv rather than rgb
 
-def get_random_int(max_val:int, min_val: int = 0):
-    return int((np.random.random() * (max_val - min_val)) + min_val)
 
-class ObjectModifier(Enum):
+
+
+
+class ObjectModifier(IntEnum):
     SizeModifier = 1,
     PerspectiveModifier = 2,
     RotationModifier = 3,
     ColorModifier = 4
+
+
+def _name_from_modifier(mod: ObjectModifier) -> str:
+    if mod == ObjectModifier.SizeModifier:
+        return 'size'
+    if mod == ObjectModifier.RotationModifier:
+        return 'rotation'
+    if mod == ObjectModifier.ColorModifier:
+        return 'color'
+    else:
+        return 'perspective'
+
 
 class ObjectRep:
     def __init__(self, num_verticies: int, color: Tuple = None):
@@ -58,7 +63,7 @@ class ObjectRep:
         self.verticies = list(self.verticies)
         self.verticies = [list(x) for x in self.verticies]
 
-        self.color = color
+        self.color = color #REPRESENTED AS HSV RATHER THAN RGB
         if self.color is None:
             self.color = get_random_color()
 
@@ -99,188 +104,305 @@ class ObjectRep:
     def __repr__(self):
         return str(self.verticies)
 
-    def draw(self, scale: int, modifiers: List[ObjectModifier] = None):
-        width = int(self.width * scale)
-        height = int(self.height * scale)
-        img = Image.new('RGBA', (height, width), (255, 255, 255, 0))
+    def _draw(self, scale: int, modifiers: List[ObjectModifier] = None):
+        width = math.ceil(self.width * scale)
+        height = math.ceil(self.height * scale)
+        img = Image.new('RGBA', (width, height), (255, 255, 255, 0))
         draw = ImageDraw.Draw(img)
 
         mods = [] if modifiers is None else modifiers
 
+        color_to_use = [x for x in self.color]
+
+        if ObjectModifier.ColorModifier in mods:
+            shift = 15
+            color_shift = get_random_int(shift,-shift)
+            color_to_use[0] += color_shift
+            color_to_use[0] %= 360
+
         # scaled = [((v[0] + self.top_left_corner[0]) * scale_to_use + position[0], (v[1] + self.top_left_corner[1]) * scale_to_use + position[1]) for v in self.verticies]
-        scaled = [(int(v[0] * scale), int(v[1] * scale)) for v in self.verticies]
+        scaled = [(math.ceil((v[0]- self.top_left_corner[0]) * scale) , math.ceil((v[1] - self.top_left_corner[1]) * scale)) for v in self.verticies]
 
-
-
-
-        draw.polygon(scaled, fill=self.color)
+        draw.polygon(scaled, fill=f'hsv({color_to_use[0]}, {color_to_use[1]}%, {color_to_use[2]}%)')
 
         for mod in mods:
             if mod == ObjectModifier.SizeModifier:
-                resize_factor = .5 + np.random.random()
-                img = img.resize((int(width * resize_factor), int(height * resize_factor)))
+                max_diff = .5
+
+                resize_factor = (1 - max_diff) + (np.random.random() * 2 * max_diff)
+                new_size = (math.ceil(width * resize_factor), math.ceil(height * resize_factor))
+                img = img.resize(new_size)
 
             if mod == ObjectModifier.PerspectiveModifier:
-                x_coords_top = np.sort(np.random.random(2) * width)
-                y_coords_left = np.sort(np.random.random(2) * height)
-                x_coords_bottom = np.sort(np.random.random(2) * width)
-                y_coords_right = np.sort(np.random.random(2) * height)
+                ratio = .9
+
+                y_coords_top = (np.random.random(2) * height * (1. - ratio))
+                x_coords_left = (np.random.random(2) * width * (1. - ratio))
+                y_coords_bottom = (np.random.random(2) * height * (1. - ratio)) + (ratio * height)
+                x_coords_right = (np.random.random(2) * width * (1. - ratio)) + (ratio * width)
 
                 from_coords = [(0,0), (width, 0), (width, height), (0, height)]
-                to_coords = [(x_coords_top[0], y_coords_left[0]), (x_coords_top[1], y_coords_right[0]),
-                             (x_coords_bottom[1], y_coords_right[1]), (x_coords_bottom[0], y_coords_left[1])]
+                to_coords = [(x_coords_left[0], y_coords_top[0]), (x_coords_right[1], y_coords_top[1]),
+                             (x_coords_right[1], y_coords_bottom[1]), (x_coords_left[1], y_coords_bottom[0])]
 
                 coeffs = find_coeffs(to_coords, from_coords)
                 img = img.transform((width, height), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
+                #TODO: realign with top left corner
 
             if mod == ObjectModifier.RotationModifier:
-                rotation_amount = get_random_int(45, -45)
-                img = img.rotate(rotation_amount, Image.NEAREST)
-
-            if mod == ObjectModifier.ColorModifier:
-                enhancer = ImageEnhance.Sharpness(img)
-                img = enhancer.enhance(5. + np.random.random())
+                max_rotation = 15
+                rotation_amount = get_random_int(max_rotation, -max_rotation)
+                img = img.rotate(rotation_amount, Image.NEAREST, expand = 1)
+                # TODO: realign with top left corner
 
         return img
 
-class DatasetGenerator:
-    def __init__(self, dataset_size:int, image_size:Tuple, num_classes: int,
-                 max_verticies_per_object:int,
-                 objects_per_image:int,
-                 save_location,
-                 max_depth_of_target:int = 0,
-                 modifiers:List[ObjectModifier]= None):
-        self.max_verticies_per_object = max(3, max_verticies_per_object)
+    def draw(self, scale: int, modifiers: List[ObjectModifier] = None):
+        mods = [] if modifiers is None else modifiers
+
+        color_to_use = [x for x in self.color]
+
+        def get_zero_aligned_vertices(verts):
+            min_x = verts[0][0]
+            min_y = verts[0][1]
+
+            for v in verts:
+                if v[0] < min_x:
+                    min_x = v[0]
+                if v[1] < min_y:
+                    min_y = v[1]
+
+            res = [(x[0] - min_x, x[1] - min_y) for x in verts]
+
+            max_x = 0
+            max_y = 0
+
+            for v in res:
+                if v[0] > max_x:
+                    max_x = v[0]
+                if v[1] > max_y:
+                    max_y = v[1]
+
+            return res, max_x, max_y
+
+        modified_vertices, height, width = get_zero_aligned_vertices(self.verticies)
+
+        for mod in mods:
+            if mod == ObjectModifier.SizeModifier:
+                max_diff = .5
+                resize_factor = (1 - max_diff) + (np.random.random() * 2 * max_diff)
+                modified_vertices = [(x[0] * resize_factor, x[1] * resize_factor) for x in modified_vertices]
+                height *= resize_factor
+                width *= resize_factor
+
+            if mod == ObjectModifier.PerspectiveModifier:
+                ratio = .9
+
+                y_coords_top = (np.random.random(2) * height * (1. - ratio))
+                x_coords_left = (np.random.random(2) * width * (1. - ratio))
+                y_coords_bottom = (np.random.random(2) * height * (1. - ratio)) + (ratio * height)
+                x_coords_right = (np.random.random(2) * width * (1. - ratio)) + (ratio * width)
+
+                from_coords = np.array([(0,0), (width, 0), (width, height), (0, height)], dtype=np.float32)
+                to_coords = np.array([(x_coords_left[0], y_coords_top[0]), (x_coords_right[1], y_coords_top[1]),
+                             (x_coords_right[1], y_coords_bottom[1]), (x_coords_left[1], y_coords_bottom[0])], dtype=np.float32)
+
+                transformation_matrix = cv2.getPerspectiveTransform(from_coords, to_coords)
+                transformed_coords = cv2.perspectiveTransform(np.array(modified_vertices, dtype=np.float32)[np.newaxis], transformation_matrix)[0]
+                modified_vertices, height, width = get_zero_aligned_vertices(transformed_coords)
+
+            if mod == ObjectModifier.RotationModifier:
+                max_rotation = 15
+                rotation_amount = get_random_int(max_rotation, -max_rotation)
+                rotation_radians = rotation_amount * math.pi / 180.
+
+                rotated_vertices = []
+
+                for v in modified_vertices:
+                    angle = math.atan2(v[1], v[0])
+                    magnitude = math.sqrt(v[1]** 2 + v[0]**2)
+                    rotated_x = magnitude * math.cos(angle + rotation_radians)
+                    rotated_y = magnitude * math.sin(angle + rotation_radians)
+                    rotated_vertices.append((rotated_x, rotated_y))
+
+                modified_vertices, height, width = get_zero_aligned_vertices(rotated_vertices)
+
+            if mod == ObjectModifier.ColorModifier:
+                shift = 15
+                color_shift = get_random_int(shift,-shift)
+                color_to_use[0] += color_shift
+                color_to_use[0] %= 360
 
 
-        core_classes = [ObjectRep(get_random_int(self.max_verticies_per_object, 3), get_random_color()) for _ in range(num_classes)]
+        # scaled = [((v[0] + self.top_left_corner[0]) * scale_to_use + position[0], (v[1] + self.top_left_corner[1]) * scale_to_use + position[1]) for v in self.verticies]
+        # scaled = [(math.ceil((v[0]- self.top_left_corner[0]) * scale) , math.ceil((v[1] - self.top_left_corner[1]) * scale)) for v in self.verticies]
+        scaled = [(math.ceil(x[0] * scale), math.ceil(x[1] * scale)) for x in modified_vertices]
+        width *= scale
+        height *= scale
 
-        aux_objects = [ObjectRep(get_random_int(self.max_verticies_per_object, 3), get_random_color()) for _ in range(int(dataset_size / 2))]
+        width = math.ceil(width)
+        height = math.ceil(height)
 
-        self.images = []
+        img = Image.new('RGBA', (width, height), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(img)
+        draw.polygon(scaled, fill=f'hsv({color_to_use[0]}, {color_to_use[1]}%, {color_to_use[2]}%)')
 
-        repeats = int((dataset_size/num_classes)+1)
-        object_schedule = ([x for x in range(num_classes)]*repeats)[:dataset_size]
+        return img
 
-        def random_coordinates():
-            nonlocal image_size
-            return (np.random.random()*image_size[0], np.random.random()*image_size[1])
 
-        scalar = int(image_size[0] / 2)
+class DatasetGenerator(ImageDataset):
+    def __init__(self, mixed_train_images: np.ndarray, mixed_train_labels: np.ndarray, test_set_names: List[str], test_set_images: List[np.ndarray], test_set_labels: List[np.ndarray]):
+        super().__init__(mixed_train_images, mixed_train_labels, 1., 0.)
+        self.test_set_images = test_set_images
+        self.test_set_labels = test_set_labels
+        self.test_set_names = test_set_names
+
+    @staticmethod
+    def _build_task_dataset(dataset_size: int, image_size: Tuple, class_objs: List[ObjectRep], aux_objs: List[ObjectRep], object_schedule: List[int], objects_per_image:int, max_depth_of_target: int, modifiers:List[ObjectModifier]= None):
+        num_classes = len(class_objs)
+
+
+        def place_randomly(img: Image, obj: Image):
+            x_coord = get_random_int(img.size[0] - obj.size[0])
+            y_coord = get_random_int(img.size[1] - obj.size[1])
+            place(img, obj, (x_coord, y_coord))
+
+        scalar = int(image_size[0] / 2) #TODO: as parameter?
+        # scalar = image_size[0]
+
+        images = []
+
         for i in range(dataset_size):
-            target_depth = get_random_int(max_depth_of_target)
+            target_depth = min(get_random_int(max_depth_of_target), objects_per_image - 1)
+            target_index = objects_per_image - target_depth - 1
             img = Image.new('RGBA', image_size, (255, 255, 255, 0))
-            img_draw = ImageDraw.Draw(img)
 
             for o in range(objects_per_image):
 
+                if o == target_index:
+                    place_randomly(img, class_objs[object_schedule[i]].draw(scalar, modifiers))
 
-                if o == objects_per_image-(1+target_depth):
-                    core_classes[object_schedule[i]].draw(img_draw, scalar, random_coordinates())
                 else:
-                    aux_objects[get_random_int(len(aux_objects))].draw(img_draw, scalar, random_coordinates())
+                    place_randomly(img, aux_objs[get_random_int(len(aux_objs))].draw(scalar, modifiers))
 
-            self.images.append(np.array(img))
+            array_to_save = np.array(img)
+            array_to_save = np.delete(array_to_save, (3), axis=2)  # remove alpha channel
 
-        array_to_save = np.array(self.images)
+            images.append(array_to_save)
 
-        self.class_images = []
+        array_to_save = np.array(images)
+
+        return array_to_save
+
+    @staticmethod
+    def build_task_dataset(dataset_size:int, image_size:Tuple, num_classes: int,
+                 verticies_per_object:int,
+                 objects_per_image:int,
+                 save_location,
+                 max_depth_of_target:int = 0,
+                 modifiers:List[ObjectModifier]= None,
+                 randomize_vertices: bool = False):
+        max_verticies_per_object = max(3, verticies_per_object)
+
+        core_classes = []
+        aux_objects = []
+
+        if randomize_vertices:
+            core_classes = [ObjectRep(get_random_int(max_verticies_per_object, 3), (int(x * 360 / num_classes), 100, 100)) for x in range(num_classes)]
+            aux_objects = [ObjectRep(get_random_int(max_verticies_per_object, 3), get_random_color()) for _ in range(int(dataset_size / 2))]
+        else:
+            core_classes = [ObjectRep(max_verticies_per_object, (int(x * 360 / num_classes), 100, 100)) for x in range(num_classes)]
+            aux_objects = [ObjectRep(max_verticies_per_object, get_random_color()) for _ in range(int(dataset_size / 2))]
+
+        repeats = int((dataset_size / num_classes) + 1)
+        object_schedule = ([x for x in range(num_classes)] * repeats)[:dataset_size]
+
+        full_dataset = DatasetGenerator._build_task_dataset(dataset_size, image_size, core_classes, aux_objects, object_schedule, objects_per_image, max_depth_of_target, modifiers)
+        np.save(os.path.join(save_location, 'dataset.npy'), full_dataset)
+
+        partial_set_size = int(dataset_size / 10)
+        test_set_mods = [[x] for x in modifiers]
+        test_set_mods.append([])
+
+        for mod in test_set_mods:
+            partial_dataset = DatasetGenerator._build_task_dataset(partial_set_size, image_size, core_classes, aux_objects, object_schedule[:partial_set_size], objects_per_image, max_depth_of_target, mod)
+            mod_name = _name_from_modifier(mod[0]) if len(mod) == 1 else 'default'
+            np.save(os.path.join(save_location, f'test_set_{mod_name}.npy'), partial_dataset)
+
+        class_images = []
 
         for cl in core_classes:
-            img = Image.new('RGBA', image_size, (255, 255, 255, 0))
-            img_draw = ImageDraw.Draw(img)
+            img = Image.new('RGBA', image_size, (255, 255, 255, 255))
 
-            cl.draw(img_draw, image_size[0], (int(image_size[0]/2), int(image_size[0]/2)))
-            self.class_images.append(np.array(img))
+            place(img, cl.draw(image_size[0]), (0,0))
+            class_images.append(np.array(img))
 
-        classes_to_save = np.array(self.class_images)
+        classes_to_save = np.array(class_images)
 
         if not os.path.exists(save_location):
             os.makedirs(save_location)
 
-        np.save(os.path.join(save_location, 'dataset.npy'), array_to_save)
+
+        np.save(os.path.join(save_location, 'labels.npy'), object_schedule)
         np.save(os.path.join(save_location, 'classes.npy'), classes_to_save)
 
+    @staticmethod
+    def get_task_dataset(dir_name) -> DatasetGenerator:
+        if os.path.exists(dir_name):
+            images = np.load(os.path.join(dir_name, 'dataset.npy'))
+            labels = np.load(os.path.join(dir_name, 'labels.npy'))
 
-def test_object_rep():
-    img = Image.new('RGBA', (500, 500), (255, 255, 255, 0))
+            test_set_names = [x for x in os.listdir(dir_name) if 'test_set' in x]
+            test_sets = [np.load(os.path.join(dir_name, x)) for x in test_set_names]
+            test_set_labels = [labels[:len(x)] for x in test_sets]
+            test_set_titles =  [x[9:] for x in test_set_names] #'test_set_'
 
-    draw = ImageDraw.Draw(img)
+            labels = np.reshape(labels, (labels.shape[0], 1))
+            return DatasetGenerator(images, labels, test_set_titles, test_sets, test_set_labels)
+        return DatasetGenerator([], [], [], [], [])
 
-    for i in range(200):
-        obj = ObjectRep(6)
-        obj.draw(draw, 250, tuple(np.random.random(2) * 500))
+    @staticmethod
+    def _dataset_name(mods: List[ObjectModifier]):
+        mods.sort()
+        mod_list_as_str = ''.join(['_' + _name_from_modifier(x) for x in mods])
+        dataset_name = f'dataset{mod_list_as_str}'
+        return dataset_name
 
-        # print(obj)
+
+def visualize_images(imgs, scale: int = 1):
+    side_size = math.ceil(math.sqrt(len(imgs)))
+    x_dim = len(imgs[0]) * scale
+    y_dim = len(imgs[0][0]) * scale
+
+    img = Image.new('RGBA', (side_size * x_dim, side_size * y_dim), (255, 255, 255, 128))
+
+    for i, im in enumerate(imgs):
+        x = x_dim * (i % side_size)
+        y = y_dim * int(i / side_size)
+        box = (x, y, x+x_dim, y+y_dim)
+        resized = Image.fromarray(im).resize((x_dim, y_dim))
+        img.paste(resized, box)
 
     img.show()
 
 def test_dataset_generator():
-    generator = DatasetGenerator(1000, (32,32), 10, 4, 10, os.path.join(evo_dir, 'dataset_gen', ))
+    generator = DatasetGenerator.build_task_dataset(1000, (32, 32), 10, 4, 5, os.path.join(evo_dir, 'dataset_gen', ))
 
-def test_show_first_image():
-    classes = np.load(os.path.join(evo_dir, 'dataset_gen', 'classes.npy'))
-    print(classes.shape)
+def test_show_classes():
+    # classes = np.load(os.path.join(evo_dir, 'dataset_gen', 'classes.npy'))
+    classes = np.load(os.path.join(evo_dir, 'dataset_gen', 'dataset.npy'))
 
-    img = Image.fromarray(classes[0])
+    scale = 10
 
-    img.show()
-
-
-def test_transform():
-    dim = 500
-
-    img = Image.new('RGBA', (dim, dim), (255, 255, 255, 0))
-    draw = ImageDraw.Draw(img)
-
-    obj = ObjectRep(6)
-    obj.draw(draw, dim, tuple(np.random.random(2) * 500))
-
-    img.show()
-
-    coeffs = find_coeffs(
-                        [(0, 0), (dim / 2, 0), (dim, dim), (0, dim)], #to
-                        [(0, 0), (dim, 0), (dim, dim), (0, dim)]) #from
-    img = img.transform((dim,dim), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
-
-    img.show()
-
-def test_overlays():
-    dim = 500
-    img = Image.new('RGBA', (dim, dim), (0, 0, 0, 0))
-
-    obj1 = ObjectRep(6)
-    obj2 = ObjectRep(6)
-
-    def place(orig_img, new_img, coord):
-        shifted_image = new_img.transform(new_img.size, Image.AFFINE, (1, 0, coord[0], 0, 1, coord[1]))
-        orig_img.alpha_composite(new_img)
-
-
-    place(img, obj1.draw(dim), (0,0))
-    place(img, obj2.draw(dim), (0,0))
-    # img = Image.alpha_composite(img, obj2.draw(dim))
-
-    img.show("unmodified")
-
-    mods = [
-        ObjectModifier.SizeModifier,
-        # ObjectModifier.ColorModifier,
-        # ObjectModifier.RotationModifier,
-        # ObjectModifier.PerspectiveModifier
-    ]
-
-    img2 = Image.new('RGBA', (dim, dim), (0, 0, 0, 0))
-
-    place(img2, obj1.draw(dim, mods), (0, 0))
-    place(img2, obj2.draw(dim, mods), (0, 0))
-
-    img2.show("modified")
+    for cl in classes[:4]:
+        img = Image.fromarray(cl)
+        img = img.resize((img.size[0] * scale, img.size[1] * scale))
+        img.show()
 
 
 if __name__ == '__main__':
     # test_object_rep()
     # test_transform()
-    # test_dataset_generator()
-    # test_show_first_image()
-    test_overlays()
+    test_dataset_generator()
+    test_show_classes()
+    # test_overlays()

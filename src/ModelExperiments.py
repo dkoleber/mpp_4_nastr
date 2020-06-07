@@ -1,18 +1,11 @@
 from __future__ import annotations
-import sys
-import numpy as np
-from scipy import stats
-import tensorflow.python as tfp
-from EvolutionStrategy import AgingStrategy
-from FitnessCalculator import AccuracyCalculator
-from Dataset import ImageDataset
 import matplotlib.pyplot as plt
-import time
-from FileManagement import *
 from NASModel import *
-from SerialData import SerialData
 from Hyperparameters import Hyperparameters
 import cv2
+import math
+
+from TaskGen import DatasetGenerator, ObjectModifier, visualize_images
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -173,26 +166,7 @@ def test_nasnet_model_accuracy(nasnet_path):
 
     model = MetaModel(hyperparameters)
 
-    model.populate_from_embedding([OperationType.SEP_3X3, 0, #NORMAL CELL
-                                   OperationType.IDENTITY, 0,
-                                   OperationType.SEP_3X3, 1,
-                                   OperationType.SEP_5X5, 0,
-                                   OperationType.AVG_3X3, 0,
-                                   OperationType.IDENTITY, 1,
-                                   OperationType.AVG_3X3, 1,
-                                   OperationType.AVG_3X3, 1,
-                                   OperationType.SEP_5X5, 1,
-                                   OperationType.SEP_3X3, 1,
-                                   OperationType.SEP_7X7, 1, # REDUCTION CELL
-                                   OperationType.SEP_5X5, 0,
-                                   OperationType.MAX_3X3, 0,
-                                   OperationType.SEP_7X7, 1,
-                                   OperationType.AVG_3X3, 0,
-                                   OperationType.SEP_5X5, 1,
-                                   OperationType.MAX_3X3, 0,
-                                   OperationType.SEP_3X3, 2,
-                                   OperationType.AVG_3X3, 2,
-                                   OperationType.IDENTITY, 3])
+    model.populate_from_embedding(MetaModel.get_nasnet_embedding())
 
 
     model.build_model(dataset.images_shape)
@@ -205,6 +179,7 @@ def test_nasnet_model_accuracy(nasnet_path):
     # new_model = MetaModel.load(dir_path, model.model_name, True)
     # new_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
     # new_model.evaluate(dataset)
+
 
 def view_confusion_matrix():
     dir_path = os.path.join(evo_dir, 'nasnet_arch_test_2')
@@ -299,7 +274,9 @@ def cell_performance_test_1():
 
     model = MetaModel(hyperparameters)
 
-    model.populate_with_nasnet_metacells()
+    # model.populate_with_nasnet_metacells()
+    model.populate_from_embedding(MetaModel.get_nasnet_embedding())
+
     # model.build_model(dataset.images_shape)
     first_cell = CellDataHolder(3, 3, model.cells[0])
 
@@ -334,48 +311,151 @@ def cell_performance_test_1():
 
 
 def cell_performance_test_2():
+    dir_path = os.path.join(evo_dir, 'dataset_gen')
+
     hyperparameters = Hyperparameters()
+    hyperparameters.parameters['TARGET_FILTER_DIMS'] = 64
 
-    model = MetaModel(hyperparameters)
 
+    mods = [
+        # ObjectModifier.SizeModifier,
+        # ObjectModifier.PerspectiveModifier,
+        # ObjectModifier.RotationModifier,
+        # ObjectModifier.ColorModifier
+        ]
+    DatasetGenerator.build_task_dataset(20000, (32, 32), 10, 4, 2, dir_path, modifiers=mods, max_depth_of_target=1)
+    dataset = DatasetGenerator.get_task_dataset(dir_path)
+
+    cell_samples = 50
+    num_cells = 1
+
+    steps_per_epoch = math.ceil(len(dataset.train_labels) / hyperparameters.parameters['BATCH_SIZE'])
+    total_steps = hyperparameters.parameters['TRAIN_ITERATIONS'] * hyperparameters.parameters['TRAIN_EPOCHS'] * steps_per_epoch
+
+    def test_model():
+        metamodel = MetaModel(hyperparameters)
+        metamodel.populate_with_nasnet_metacells()
+
+        drop_path_tracker = DropPathTracker(hyperparameters.parameters['DROP_PATH_CHANCE'], 0, total_steps)
+        first_cell = CellDataHolder(3, hyperparameters.parameters['TARGET_FILTER_DIMS'], metamodel.cells[0], False, drop_path_tracker, 0.)
+
+        def get_model():
+            cell_input = tf.keras.Input(dataset.images_shape)
+            cell_output = tf.keras.layers.Conv2D(hyperparameters.parameters['TARGET_FILTER_DIMS'], 1, 1, 'same')(cell_input)
+            cell_output = first_cell.build([cell_output, cell_output])
+            cell_output = cell_output[0]
+            cell_output = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))(cell_output)
+            cell_output = tf.keras.layers.Dropout(.5)(cell_output)
+            cell_output = tf.keras.layers.Dense(10)(cell_output)
+            model = tf.keras.Model(inputs=cell_input, outputs=cell_output)
+            optimizer = tf.keras.optimizers.Adam(learning_rate=hyperparameters.parameters['MAXIMUM_LEARNING_RATE'])
+            model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+            return model
+
+        accuracies = []
+        for i in range(cell_samples):
+            cell_model = get_model()
+            cell_model.fit(dataset.train_images, dataset.train_labels, shuffle=True, batch_size=hyperparameters.parameters['BATCH_SIZE'], epochs=1, callbacks=[drop_path_tracker])
+            model_accuracies = []
+            for test_set_index in range(len(dataset.test_set_images)):
+                accuracy = cell_model.evaluate(dataset.test_set_images[test_set_index], dataset.test_set_labels[test_set_index])[-1]
+                print(f'{dataset.test_set_names[test_set_index]} test set accuracy: {accuracy}')
+                model_accuracies.append(accuracy)
+            # accuracy = cell_model.evaluate(dataset.test_images, dataset.test_labels)[-1]
+            # accuracies.append(accuracy)
+            accuracies.append(model_accuracies)
+            tf.keras.backend.clear_session()
+            del cell_model
+
+        return accuracies, metamodel.get_embedding()
+
+    all_accuracies = []
+    all_embeddings = []
+
+    for x in range(num_cells):
+        accuracies, embedding = test_model()
+        all_accuracies.append(accuracies)
+        all_embeddings.append(embedding)
+
+    all_accuracies = np.array(all_accuracies)
+    print(f'all accuracies shape: {all_accuracies.shape}')
+
+    for i in range(len(all_accuracies)):
+        print(f'embedding: {all_embeddings[i]}, avgs: {np.mean(all_accuracies[i], axis=0)}')
+
+    output_path = os.path.join(dir_path, 'results.json')
+    data = {
+        'embeddings': all_embeddings,
+        'accuracies': all_accuracies.tolist()
+    }
+    with open(output_path, 'w+') as fl:
+        json.dump(data, fl, indent=4)
+
+
+def cell_performance_test_2_analysis():
+    data_path = os.path.join(evo_dir, 'dataset_gen', 'results.json')
+
+    with open(data_path, 'r') as fl:
+        data = json.load(fl)
+
+    all_accuracies = data['accuracies']
+    all_embeddings = data['embeddings']
+
+
+    y = []
+    x = [x for x in range(len(all_accuracies[0]))]
+
+    for i in range(len(all_embeddings)):
+        frame = 10
+        accuracies = np.array(all_accuracies[i])
+        avg = np.mean(accuracies, axis=0)
+        model_diffs = []
+        for step in range(len(x)):
+            diff_from_avg = np.squeeze(np.mean(accuracies[step:min(step+frame, len(accuracies))], axis=0) - avg)
+            model_diffs.append(diff_from_avg)
+        y.append(model_diffs)
+
+    y = np.array(y)
+    y = np.reshape(y, (len(x), -1))
+
+    plt.subplot(1, 1, 1)
+    plt.plot(x, y)
+    plt.title('x v y')
+    plt.xlabel('x')
+    plt.ylabel('y')
+
+    plt.show()
+
+
+def test_model_accuracy_from_embedding(dir_name, embedding):
+    dir_path = os.path.join(evo_dir, dir_name)
+    # dataset = ImageDataset.get_cifar10_reduced()
     dataset = ImageDataset.get_cifar10()
-
-    model.populate_with_nasnet_metacells()
-    # model.build_model(dataset.images_shape)
-    first_cell = CellDataHolder(3, 3, model.cells[0], 0)
-
-    cell_input = tf.keras.Input(dataset.images_shape)
-    cell_input = tf.keras.layers.Conv2D(hyperparameters.parameters['TARGET_FILTER_DIMS'], 1, 1, 'same')(cell_input)
-    cell_output = first_cell.build([cell_input, cell_input])
-    cell_output = tf.keras.layers.Dense(10)(cell_output)
-    cell_model = tf.keras.Model(inputs=cell_input, outputs=cell_output)
-
-    optimizer = tf.keras.optimizers.Adam(learning_rate=hyperparameters.parameters['LEARNING_RATE'])
-
-
-
-
-
-
-def test_load(nasnet_path):
-    dir_path = os.path.join(evo_dir, nasnet_path)
-    dataset = ImageDataset.get_cifar10_reduced()
-    # dataset = ImageDataset.get_cifar10()
-
-    model_name = os.listdir(dir_path)[-1]
 
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
     hyperparameters = Hyperparameters()
 
+    model = MetaModel(hyperparameters)
 
-    new_model = MetaModel.load(dir_path, model_name, True)
-    # new_model.apply_mutation(1, 0, 1, .99, 1. / float(OperationType.SEP_7X7))
-    new_model.evaluate(dataset)
+    model.populate_from_embedding(embedding)
+
+
+    model.build_model(dataset.images_shape)
+    model.evaluate(dataset)
+    model.save_model(dir_path)
+    model.generate_graph(dir_path)
+    model.save_metadata(dir_path)
+    model.clear_model()
+
 
 if __name__ == '__main__':
-    test_nasnet_model_accuracy('nasnet_arch_test_sgd_dropout')
+    # test_nasnet_model_accuracy('nasnet_arch_test_sgd_dropout')
+
+    # cell_performance_test_2()
+    # cell_performance_test_2_analysis()
+
     # test_load('nasnet_arch_test_sgd_dropout')
     # view_confusion_matrix()
     # activations_test()
@@ -387,5 +467,6 @@ if __name__ == '__main__':
     # analyze_model_performances('test_accuracy_epochs_h5')
     # analyze_model_performances('test_accuracy_epochs_h5_add8')
     # analyze_model_performances('test_accuracy_epochs_h5_add8_2')
+    test_model_accuracy_from_embedding('serial_3x3', MetaModel.get_m1_sep3_serial_embedding())
 
 

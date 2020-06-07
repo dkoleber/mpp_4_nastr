@@ -510,6 +510,8 @@ class MetaModel(SerialData):
 
     def get_embedding(self):
         embedding = []
+        embedding.append(self.hyperparameters.parameters['NORMAL_CELL_N'])
+        embedding.append(self.hyperparameters.parameters['CELL_LAYERS'])
 
         for cell in self.cells:
             for group in cell.groups:
@@ -527,6 +529,11 @@ class MetaModel(SerialData):
         num_cell_inputs = 2
 
         dup_embedding = embedding.copy()
+
+        self.hyperparameters.parameters['NORMAL_CELL_N'] = dup_embedding[0]
+        del dup_embedding[0]
+        self.hyperparameters.parameters['CELL_LAYERS'] = dup_embedding[0]
+        del dup_embedding[0]
 
         for cell_ind in range(num_cells):
             self.cells.append(MetaCell(num_cell_inputs))
@@ -573,6 +580,60 @@ class MetaModel(SerialData):
 
         return output_model
 
+    @staticmethod
+    def get_nasnet_embedding() -> List:
+        return [5, 3,
+         OperationType.SEP_3X3, 0,  # NORMAL CELL
+         OperationType.IDENTITY, 0,
+         OperationType.SEP_3X3, 1,
+         OperationType.SEP_5X5, 0,
+         OperationType.AVG_3X3, 0,
+         OperationType.IDENTITY, 1,
+         OperationType.AVG_3X3, 1,
+         OperationType.AVG_3X3, 1,
+         OperationType.SEP_5X5, 1,
+         OperationType.SEP_3X3, 1,
+         OperationType.SEP_7X7, 1,  # REDUCTION CELL
+         OperationType.SEP_5X5, 0,
+         OperationType.MAX_3X3, 0,
+         OperationType.SEP_7X7, 1,
+         OperationType.AVG_3X3, 0,
+         OperationType.SEP_5X5, 1,
+         OperationType.MAX_3X3, 0,
+         OperationType.SEP_3X3, 2,
+         OperationType.AVG_3X3, 2,
+         OperationType.IDENTITY, 3]
+
+    @staticmethod
+    def get_identity_embedding() -> List:
+        embedding = [5, 3]
+        embedding.extend([0] * 40)
+        return embedding
+
+    @staticmethod
+    def get_s1_embedding() -> List:
+        return [5, 3, 6, 0, 0, 1, 0, 0, 6, 1, 4, 1, 3, 2, 5, 4, 5, 3, 2, 1, 0, 1, 3, 0, 0, 1, 4, 2, 1, 0, 1, 1, 6, 3, 3, 4, 5, 0, 5, 3, 2, 4]
+
+    @staticmethod
+    def get_m1_sep7_embedding() -> List:
+        embedding = [5, 3]
+        embedding.extend([OperationType.SEP_7X7, 0] * 20)
+        return embedding
+
+    @staticmethod
+    def get_m1_sep3_embedding() -> List:
+        embedding = [5, 3]
+        embedding.extend([OperationType.SEP_3X3, 0] * 20)
+        return embedding
+
+    @staticmethod
+    def get_m1_sep3_serial_embedding() -> List:
+        embedding = [5, 3]
+        for j in range(2):
+            embedding.extend([OperationType.SEP_3X3, 0, OperationType.SEP_3X3, 1])
+            for i in range(1, 5):
+                embedding.extend([OperationType.SEP_3X3, i + 1, OperationType.SEP_3X3, i + 1])
+        return embedding
 
 class Relu6Layer(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
@@ -1270,7 +1331,7 @@ class ModelDataHolder:
         num_normal_cells_per_layer = meta_model.hyperparameters.parameters['NORMAL_CELL_N']
 
 
-        steps_per_epoch = math.ceil(50000 / meta_model.hyperparameters.parameters['BATCH_SIZE'])
+        steps_per_epoch = math.ceil(50000 / meta_model.hyperparameters.parameters['BATCH_SIZE']) #TODO: MAGIC NUMBER
         steps_so_far = (len(meta_model.metrics.metrics['accuracy']) * meta_model.hyperparameters.parameters['TRAIN_EPOCHS']) * steps_per_epoch
         total_steps = meta_model.hyperparameters.parameters['TRAIN_ITERATIONS'] * meta_model.hyperparameters.parameters['TRAIN_EPOCHS'] * steps_per_epoch
         self.drop_path_tracker = DropPathTracker(meta_model.hyperparameters.parameters['DROP_PATH_CHANCE'], steps_so_far, total_steps)

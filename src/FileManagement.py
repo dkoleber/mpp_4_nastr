@@ -7,8 +7,9 @@ evo_dir = os.path.join(HERE, '..\\evolution\\')
 res_dir = os.path.join(HERE, '..\\res\\')
 tensorboard_dir = os.path.join(HERE, '..\\tensorboard\\')
 model_save_dir = os.path.join(HERE, '..\\models\\')
+task_dataset_dir = os.path.join(HERE, '..\\task_datasets\\')
 
-dirs = [evo_dir, res_dir, tensorboard_dir, model_save_dir]
+dirs = [evo_dir, res_dir, tensorboard_dir, model_save_dir, task_dataset_dir]
 
 
 def write_json_to_file(obj: dict, dir_path: str, name: str) -> None:
