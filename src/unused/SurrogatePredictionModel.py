@@ -1,11 +1,8 @@
-import tensorflow as tf
-import numpy as np
-import os
 import time
 from Dataset import *
 
 from FileManagement import *
-from NASModel import MetaModel
+from model.MetaModel import MetaModel
 
 def make_surrogate_model():
     cell_embedding_input = tf.keras.layers.Input()

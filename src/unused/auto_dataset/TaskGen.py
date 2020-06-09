@@ -36,9 +36,6 @@ def get_random_color() -> Tuple:
     return (get_random_int(360, 0), 100, 100) #hsv rather than rgb
 
 
-
-
-
 class ObjectModifier(IntEnum):
     SizeModifier = 1,
     PerspectiveModifier = 2,

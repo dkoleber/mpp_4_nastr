@@ -2,7 +2,7 @@ from __future__ import annotations
 from scipy import stats
 
 import matplotlib.pyplot as plt
-from NASModel import *
+from model.MetaModel import *
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
