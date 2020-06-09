@@ -42,6 +42,7 @@ class MetaOperation(SerialData):
 class MetaGroup(SerialData):
     def __init__(self):
         self.operations: List[MetaOperation] = []
+        self.static_data = {}
 
     def serialize(self) -> dict:
         return {'operations': [x.serialize() for x in self.operations]}
@@ -76,6 +77,119 @@ class MetaCell(SerialData):
                     used.remove(op.actual_attachment)
 
         return used
+
+    def process_stuff(self):
+
+
+
+        # get residual ratios
+        self.groups.sort(key=lambda x: x.operations[0].attachment_index)
+        for g in self.groups:
+            g.static_data['residual_ratio'] = 0
+        for g in self.groups:
+            ratios = []
+            for op in g.operations:
+                if op.actual_attachment == 0:
+                    ratios.append(0.)
+                elif op.actual_attachment == 1:
+                    ratios.append(1.)
+                else:
+                    ratios.append(self.groups[op.actual_attachment-2].static_data['residual_ratio'])
+            g.static_data['residual_ratio'] = np.mean(np.array(ratios))
+
+
+        indexes = self.get_unused_group_indexes()
+        values = [self.groups[i - 2].static_data['residual_ratio'] for i in indexes]
+        print(f'residual radio: {np.mean(np.array(values))}')
+
+        # find all paths through the cell
+        def list_contains_list(list_of_lists, list_to_check):
+            contains = False
+            for sub_list in list_of_lists:
+                if len(sub_list) != len(list_to_check):
+                    continue
+                mismatch = False
+                for index in range(len(sub_list)):
+                    if sub_list[index] != list_to_check[index]:
+                        mismatch = True
+                        break
+
+                if not mismatch:
+                    return True
+            return False
+        paths = [[0], [1]]
+        for g in self.groups:
+            for op in g.operations:
+                to_add = []
+                for path in paths:
+                    if path[-1] == op.actual_attachment:
+                        new = path.copy()
+                        new.append(op.attachment_index)
+                        to_add.append(new)
+                paths.extend(to_add)
+        non_duplicate = []
+        for path in paths:
+            path_zero = path.copy()
+            # path_zero[0] = 0
+            if not list_contains_list(non_duplicate, path_zero):
+                non_duplicate.append(path_zero)
+        final_paths = []
+        for path in non_duplicate:
+            if path[-1] in indexes:
+                final_paths.append(path)
+        final_paths.sort(key=lambda x: len(x))
+
+
+        # find spread data
+        path_data = []
+        def get_spread(op_type: OperationType):
+            if op_type == OperationType.SEP_3X3:
+                return 1, 1/9
+            elif op_type == OperationType.SEP_5X5:
+                return 2, 1/25
+            elif op_type == OperationType.SEP_7X7:
+                return 3, 1/49
+            elif op_type == OperationType.AVG_3X3:
+                return 1, 1/9
+            elif op_type == OperationType.MAX_3X3:
+                return 1, 1/9
+            elif op_type == OperationType.DIL_3X3:
+                return 2, 1/9
+            elif op_type == OperationType.SEP_1X7_7X1:
+                return 3, 1/49
+            else:
+                return 1, 1
+        for path in final_paths:
+            data = {'spread': 0, 'spread_power': 1}
+            for index, group_index in enumerate(path[1:]):
+                for op in self.groups[group_index-2].operations:
+                    # print(f'path[index-1]: {path[index]}, actual attachment: {op.actual_attachment}')
+                    if op.actual_attachment == path[index]:
+                        # this means that this op is consuming the connecting node
+                        spread, spread_power = get_spread(op.operation_type)
+                        data['spread'] += spread
+                        data['spread_power'] *= spread_power
+            path_data.append(data)
+        paths_organized_by_length = {}
+        for path_index, path in enumerate(final_paths):
+            key = len(path)
+            if key not in paths_organized_by_length:
+                paths_organized_by_length[key] = []
+            paths_organized_by_length[key].append(path_index)
+        path_data_organized_by_length = {key:{'spread': 0, 'spread_power': 1} for key, _ in paths_organized_by_length.items()}
+        for key, path_indexes in paths_organized_by_length.items():
+            for path_index in path_indexes:
+                for data_key, data_value in path_data[path_index].items():
+                    path_data_organized_by_length[key][data_key] += data_value
+            for data_key, data_item in path_data_organized_by_length[key].items():
+                path_data_organized_by_length[key][data_key] /= len(path_indexes)
+
+        print(f'data avg: {path_data_organized_by_length}')
+
+        #find critical path
+        #find least critical path
+        #find average path
+
 
 
 class MetaModel(SerialData):
