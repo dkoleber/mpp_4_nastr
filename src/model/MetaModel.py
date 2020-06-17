@@ -19,6 +19,8 @@ from Hyperparameters import Hyperparameters
 from Dataset import ImageDataset
 from model.ModelUtilities import *
 from model.ModelDataHolder import *
+from Utils import *
+
 
 class MetaOperation(SerialData):
     def __init__(self, attachment_index: int = 0):
@@ -100,23 +102,9 @@ class MetaCell(SerialData):
 
         indexes = self.get_unused_group_indexes()
         values = [self.groups[i - 2].static_data['residual_ratio'] for i in indexes]
-        print(f'residual radio: {np.mean(np.array(values))}')
+        residual_ratio = np.mean(np.array(values))
 
         # find all paths through the cell
-        def list_contains_list(list_of_lists, list_to_check):
-            contains = False
-            for sub_list in list_of_lists:
-                if len(sub_list) != len(list_to_check):
-                    continue
-                mismatch = False
-                for index in range(len(sub_list)):
-                    if sub_list[index] != list_to_check[index]:
-                        mismatch = True
-                        break
-
-                if not mismatch:
-                    return True
-            return False
         paths = [[0], [1]]
         for g in self.groups:
             for op in g.operations:
@@ -140,7 +128,7 @@ class MetaCell(SerialData):
         final_paths.sort(key=lambda x: len(x))
 
 
-        # find spread data
+
         path_data = []
         def get_spread(op_type: OperationType):
             if op_type == OperationType.SEP_3X3:
@@ -159,6 +147,8 @@ class MetaCell(SerialData):
                 return 3, 1/49
             else:
                 return 1, 1
+
+        # get the data for each path
         for path in final_paths:
             data = {'spread': 0, 'spread_power': 1}
             for index, group_index in enumerate(path[1:]):
@@ -170,26 +160,53 @@ class MetaCell(SerialData):
                         data['spread'] += spread
                         data['spread_power'] *= spread_power
             path_data.append(data)
+
+        # sort paths into lists for each path length
         paths_organized_by_length = {}
         for path_index, path in enumerate(final_paths):
             key = len(path)
             if key not in paths_organized_by_length:
                 paths_organized_by_length[key] = []
             paths_organized_by_length[key].append(path_index)
-        path_data_organized_by_length = {key:{'spread': 0, 'spread_power': 1} for key, _ in paths_organized_by_length.items()}
+
+        # find the average data values for paths of the same length
+        path_data_organized_by_length = {key:{'spread': 0, 'spread_power': 0} for key, _ in paths_organized_by_length.items()}
+        path_counts_organized_by_length = {key:0 for key, _ in paths_organized_by_length.items()}
         for key, path_indexes in paths_organized_by_length.items():
             for path_index in path_indexes:
                 for data_key, data_value in path_data[path_index].items():
                     path_data_organized_by_length[key][data_key] += data_value
+                path_counts_organized_by_length[key] += 1
             for data_key, data_item in path_data_organized_by_length[key].items():
                 path_data_organized_by_length[key][data_key] /= len(path_indexes)
 
-        print(f'data avg: {path_data_organized_by_length}')
+        # print(f'data avg: {path_data_organized_by_length}')
+        # print(f'path counts: {path_counts_organized_by_length}')
 
-        #find critical path
-        #find least critical path
-        #find average path
+        path_lengths = paths_organized_by_length.keys()
+        num_paths = sum([path_counts_organized_by_length[i] for i in path_lengths])
 
+        avg_data = {'spread': 0, 'spread_power': 0}
+        for key, val in path_data_organized_by_length.items():
+            for data_key, data_val in avg_data.items():
+                avg_data[data_key] += val[data_key] * (path_counts_organized_by_length[key] / num_paths)
+
+        shortest_path_avg = path_data_organized_by_length[min(path_lengths)]
+        longest_path_avg = path_data_organized_by_length[max(path_lengths)]
+        num_outputs_norm = len(indexes) / len(self.groups)
+
+        def norm_spread_data(d):
+            d['spread'] /= (5*3) #max blocks * max spread
+            d['spread_power'] = (1/d['spread_power']) / (1/((1/49)**5))
+            return d
+
+        return {
+            'residual_ratio' : residual_ratio,  # [0, 1]
+            'num_outputs': num_outputs_norm,    # [.2, 1]
+            'shortest_path' : norm_spread_data(shortest_path_avg),
+            'avg_path': norm_spread_data(avg_data),
+            'longest_path': norm_spread_data(longest_path_avg)
+        }
 
 
 class MetaModel(SerialData):
@@ -303,19 +320,27 @@ class MetaModel(SerialData):
         self.build_model(initial_layer_shape, False)
 
     def serialize(self) -> dict:
+        # return {
+        #     'blocks': [x.serialize() for x in self.cells],
+        #     'metrics': self.metrics.serialize(),
+        #     'hyperparameters': self.hyperparameters.serialize(),
+        #     'model_name': self.model_name,
+        #     'parent_model_name': self.parent_model_name
+        # }
         return {
-            'blocks': [x.serialize() for x in self.cells],
-            'metrics': self.metrics.serialize(),
+            'embedding': self.get_embedding(),
             'hyperparameters': self.hyperparameters.serialize(),
             'model_name': self.model_name,
+            'metrics': self.metrics.serialize(),
             'parent_model_name': self.parent_model_name
         }
 
     def deserialize(self, obj: dict) -> None:
-        for block in obj['blocks']:
-            item = MetaCell()
-            item.deserialize(block)
-            self.cells.append(item)
+        # for block in obj['blocks']:
+        #     item = MetaCell()
+        #     item.deserialize(block)
+        #     self.cells.append(item)
+        self.populate_from_embedding(obj['embedding'])
         self.model_name = obj['model_name']
         self.metrics = Metrics()
         self.metrics.deserialize(obj['metrics'])
@@ -328,10 +353,9 @@ class MetaModel(SerialData):
 
     def build_model(self, input_shape, use_new_weights: bool = True) -> None:
         if self.keras_model is None:
-            print('creating model')
+            print('Creating new keras model')
             build_time = time.time()
             if self.keras_model_data is None or use_new_weights:
-                print('using new data for model')
                 self.keras_model_data = ModelDataHolder(self)
             model_input = tf.keras.Input(input_shape)
             self.keras_model = self.keras_model_data.build(model_input)
@@ -348,7 +372,7 @@ class MetaModel(SerialData):
         else:
             print('reusing previous keras model')
 
-    def evaluate(self, dataset: ImageDataset) -> None:
+    def evaluate(self, dataset: ImageDataset, save_interval: int = 0, save_path: str = None) -> None:
         batch_size = self.hyperparameters.parameters['BATCH_SIZE']
         min_lr = self.hyperparameters.parameters['MINIMUM_LEARNING_RATE']
         max_lr = self.hyperparameters.parameters['MAXIMUM_LEARNING_RATE']
@@ -358,7 +382,8 @@ class MetaModel(SerialData):
                     self.hyperparameters.parameters['SGDR_LR_DECAY'],
                     self.hyperparameters.parameters['SGDR_PERIOD_DECAY'])
 
-        completed_epochs = len(self.metrics.metrics['accuracy'])
+        completed_iterations = len(self.metrics.metrics['accuracy'])
+        completed_epochs = completed_iterations * self.hyperparameters.parameters['TRAIN_EPOCHS']
         if completed_epochs != 0:
             sgdr.init_after_epochs(completed_epochs)
 
@@ -366,10 +391,7 @@ class MetaModel(SerialData):
         if self.hyperparameters.parameters['USE_SGDR']:
             callbacks.append(sgdr)
 
-        # print(self.keras_model.summary(line_length=200))
-        # print(self.keras_model.non_trainable_variables)
-
-        for iteration in range(int(self.hyperparameters.parameters['TRAIN_ITERATIONS'])):
+        for iteration in range(completed_iterations, self.hyperparameters.parameters['TRAIN_ITERATIONS']):
             print(f'Starting training iteration {iteration}')
             train_time = time.time()
             for epoch_num in range(int(self.hyperparameters.parameters['TRAIN_EPOCHS'])):
@@ -383,6 +405,11 @@ class MetaModel(SerialData):
             self.metrics.metrics['accuracy'].append(float(evaluated_metrics[-1]))
             self.metrics.metrics['average_train_time'].append(train_time / float(self.hyperparameters.parameters['TRAIN_EPOCHS'] * len(dataset.train_labels)))
             self.metrics.metrics['average_inference_time'].append(inference_time / float(len(dataset.test_images)))
+
+            if save_interval != 0 and iteration % save_interval == 0 and save_path is not None:
+                print('Checkpoint. Saving model...')
+                self.save_metadata(save_path)
+                self.save_model(save_path)
 
     def save_metadata(self, dir_path: str = model_save_dir):
         dir_name = os.path.join(dir_path, self.model_name)
@@ -624,6 +651,9 @@ class MetaModel(SerialData):
         output_model = tf.keras.Model(inputs=self.keras_model.inputs, outputs=outputs)
 
         return output_model
+
+    def process_stuff(self):
+        return [x.process_stuff() for x in self.cells]
 
     @staticmethod
     def get_nasnet_embedding() -> List:

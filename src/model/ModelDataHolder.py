@@ -1,12 +1,16 @@
 from __future__ import annotations
+
+import math
 import os
 import sys
+from typing import List
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(HERE)
 
 from model.MetaModel import *
 from model.DropPath import *
-
+from model.CustomLayers import *
 
 class ModelParsingHelper:
     def __init__(self):
@@ -286,11 +290,13 @@ class ModelDataHolder:
         num_cell_layers = meta_model.hyperparameters.parameters['CELL_LAYERS']
         num_normal_cells_per_layer = meta_model.hyperparameters.parameters['NORMAL_CELL_N']
 
+        epochs_so_far = len(meta_model.metrics.metrics['accuracy']) * meta_model.hyperparameters.parameters['TRAIN_EPOCHS']
+        total_epochs = meta_model.hyperparameters.parameters['TRAIN_EPOCHS'] * meta_model.hyperparameters.parameters['TRAIN_ITERATIONS']
 
-        steps_per_epoch = math.ceil(50000 / meta_model.hyperparameters.parameters['BATCH_SIZE']) #TODO: MAGIC NUMBER
-        steps_so_far = (len(meta_model.metrics.metrics['accuracy']) * meta_model.hyperparameters.parameters['TRAIN_EPOCHS']) * steps_per_epoch
-        total_steps = meta_model.hyperparameters.parameters['TRAIN_ITERATIONS'] * meta_model.hyperparameters.parameters['TRAIN_EPOCHS'] * steps_per_epoch
-        self.drop_path_tracker = DropPathTracker(meta_model.hyperparameters.parameters['DROP_PATH_CHANCE'], steps_so_far, total_steps)
+        self.drop_path_tracker = DropPathTracker(meta_model.hyperparameters.parameters['DROP_PATH_CHANCE'],
+                                                 epochs_so_far,
+                                                 total_epochs,
+                                                 meta_model.hyperparameters.parameters['DROP_PATH_TOTAL_STEPS_MULTI'])
 
         self.cells: List[CellDataHolder] = []
 

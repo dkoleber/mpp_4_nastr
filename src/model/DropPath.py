@@ -1,19 +1,29 @@
 import tensorflow as tf
 
 class DropPathTracker(tf.keras.callbacks.Callback):
-    def __init__(self, base_drop_path_chance: float, steps_so_far: int, max_steps: int):
+    def __init__(self, base_drop_path_chance: float, epochs_so_far: int, total_epochs: int, steps_multiplier: float = 1.):
         super().__init__()
         self.drop_path_chance = tf.Variable(1., trainable=False, dtype=tf.float32)
         self.global_step = tf.Variable(1, trainable=False, dtype=tf.int32)
-        self.total_steps = tf.constant(max_steps, dtype=tf.int32)
+        self.total_steps = tf.Variable(0, dtype=tf.int32)
+        self.global_step.assign(0)
 
         self.base_drop_path_chance = base_drop_path_chance
         self.drop_path_chance.assign(1.0)
 
-        self.global_step.assign(steps_so_far)
+        self.epochs_so_far = epochs_so_far
+        self.total_epochs = total_epochs
+        self.steps_multiplier = steps_multiplier
+
 
     def on_train_begin(self, logs=None):
         self.drop_path_chance.assign(self.base_drop_path_chance)
+        steps_per_epoch = self.params['steps']
+        steps_so_far = self.epochs_so_far * steps_per_epoch
+        total_steps = int(self.total_epochs * steps_per_epoch * self.steps_multiplier)
+        self.global_step.assign(steps_so_far)
+        self.total_steps.assign(total_steps)
+
 
     def on_train_end(self, logs=None):
         self.drop_path_chance.assign(1.0)

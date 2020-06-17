@@ -42,7 +42,7 @@ class Hyperparameters(SerialData):
                 'REDUCE_CURRENT': False,
 
                 'TRAIN_EPOCHS': 1,
-                'TRAIN_ITERATIONS': 32,
+                'TRAIN_ITERATIONS': 16,
                 'MAXIMUM_LEARNING_RATE': 0.002,
                 'MINIMUM_LEARNING_RATE': 0.001,
                 'USE_SGDR': True,
@@ -53,6 +53,7 @@ class Hyperparameters(SerialData):
                 'SGDR_PERIOD_DECAY': 2,
 
                 'DROP_PATH_CHANCE': .6,
+                'DROP_PATH_TOTAL_STEPS_MULTI':2, #multiplies the supposed end of training by this factor, causing droppath to die off at a slower rate
 
                 'IDENTITY_THRESHOLD': 0.,  # .33
             }
@@ -72,6 +73,9 @@ class Hyperparameters(SerialData):
                 'SGDR_EPOCHS_PER_RESTART': 3,
                 'SGDR_LR_DECAY': .95,
                 'SGDR_PERIOD_DECAY': 1.05,
+
+                'DROP_PATH_CHANCE': .6,
+                'DROP_PATH_TOTAL_STEPS_MULTI': 1,
 
                 'IDENTITY_THRESHOLD': .33,
             }
