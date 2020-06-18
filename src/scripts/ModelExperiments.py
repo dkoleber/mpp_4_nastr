@@ -5,7 +5,7 @@ from Hyperparameters import Hyperparameters
 import cv2
 import math
 
-from unused.auto_dataset.TaskGen import DatasetGenerator
+from auto_dataset.TaskGen import DatasetGenerator
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 

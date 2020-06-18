@@ -32,7 +32,8 @@ def multi_model_test():
         MetaModel.get_s1_embedding(),
         MetaModel.get_identity_embedding(),
         MetaModel.get_m1_sep3_embedding(),
-        MetaModel.get_m1_sep7_embedding()
+        MetaModel.get_m1_sep7_embedding(),
+        MetaModel.get_m1_sep3_serial_embedding(),
     ]
 
     dir_path = os.path.join(evo_dir, 'static_analysis_samples')
@@ -338,7 +339,7 @@ def linreg_test():
 
 if __name__ == '__main__':
     # test_residual_ratio()
-    # multi_model_test()
+    multi_model_test()
     # analyze_stuff()
-    linreg_on_static_measurements()
+    # linreg_on_static_measurements()
     # linreg_test()

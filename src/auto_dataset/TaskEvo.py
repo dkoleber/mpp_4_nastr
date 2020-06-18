@@ -1,17 +1,20 @@
 from __future__ import annotations
 import matplotlib.pyplot as plt
+import os
+import sys
+import math
+import tensorflow as tf
+
+
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(HERE,'..\\'))
 
 from model.MetaModel import *
 from Hyperparameters import Hyperparameters
-import math
-
-from unused.auto_dataset.TaskGen import DatasetGenerator, ObjectModifier
 from Utils import *
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-import tensorflow as tf
-
+from auto_dataset.TaskGen import DatasetGenerator, ObjectModifier
 
 
 
@@ -194,68 +197,6 @@ def performance(accuracies):
     return np.mean(values, axis=1)
 
 
-def plot_performances():
-    data_path = os.path.join(evo_dir, 'cell_task_evo_full', 'results.json')
-
-    with open(data_path, 'r') as fl:
-        data = json.load(fl)
-
-    x = [x for x in range(len(data['accuracies']))]
-    performances = np.array([performance(x) for x in data['accuracies']])
-    plt.subplot(1, 1, 1)
-    plt.plot(x, performances)
-    plt.title('x v y')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.show()
-
-
-def test_performance_curve():
-    increment = .05
-    x = [x * increment for x in range(int(1./increment)+1)]
-    x_norm = [[x * increment] for x in range(int(1. / increment) + 1)]
-    x_inv = [[1. - (x * increment)] for  x in range(int(1./increment)+1)]
-    accuracies = [[x * increment, 1. - (x * increment)] for x in range(int(1./increment)+1)]
-    performances = performance(accuracies)
-
-    plt.subplot(1, 1, 1)
-    plt.plot(x, performance(accuracies))
-    plt.plot(x, performance(x_norm))
-    plt.plot(x, performance(x_inv))
-    plt.title('x v y')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.show()
-
-
-def remove_mutations():
-    data_path = os.path.join(evo_dir, 'cell_task_evo_full', 'results.json')
-
-    with open(data_path, 'r') as fl:
-        data = json.load(fl)
-
-    data['accuracies'] = data['accuracies'][:8]
-    data['embeddings'] = data['embeddings'][:8]
-
-    with open(data_path, 'w+') as fl:
-        json.dump(data, fl, indent=4)
-
-
-def test_identity_performance():
-    hyperparameters = Hyperparameters()
-    hyperparameters.parameters['TARGET_FILTER_DIMS'] = 32
-
-    dir_path = os.path.join(evo_dir, 'cell_task_evo_full')
-    dataset = DatasetGenerator.get_task_dataset(dir_path)
-
-    embedding = [5, 3]
-    embedding.extend([0]*40)
-    metamodel = MetaModel(hyperparameters)
-    metamodel.populate_from_embedding(embedding)
-    accuracies = test_model(metamodel, dataset, 16)
-
-    print(accuracies)
-
 # puts together a full model based on the top nst cells in results for a cell based search
 def test_nth_in_dir(dir_name, n: int):
     dir_path = os.path.join(evo_dir, dir_name)
@@ -295,22 +236,6 @@ def test_nth_in_dir(dir_name, n: int):
     metamodel.clear_model()
 
 
-def test_nasnet_cell_performance():
-    dir_path = os.path.join(evo_dir, 'cell_task_evo_full')
-
-    dataset = DatasetGenerator.get_task_dataset(dir_path)
-
-    cell_samples = 16
-
-    hyperparameters = Hyperparameters()
-
-    metamodel = MetaModel(hyperparameters)
-    metamodel.populate_from_embedding(MetaModel.get_nasnet_embedding())
-    accuracies = test_model(metamodel, dataset, cell_samples)
-
-    print(accuracies)
-    print(performance(accuracies))
-
 
 def test_benchmark_models():
     dir_path = os.path.join(evo_dir, 'cell_evo_benchmarks_6')
@@ -340,7 +265,7 @@ def test_benchmark_models():
         MetaModel.get_s1_embedding(),
         MetaModel.get_identity_embedding(),
         MetaModel.get_m1_sep3_embedding(),
-        # MetaModel.get_m1_sep7_embedding(),
+        MetaModel.get_m1_sep7_embedding(),
         MetaModel.get_m1_sep3_serial_embedding(),
     ]
 
@@ -367,13 +292,6 @@ def test_benchmark_models():
     performances = [performance(x) for x in data['accuracies']]
     print(performances)
 
-
-def get_graph():
-    dir_path = os.path.join(evo_dir, 'cell_evo_benchmarks')
-    hyperparameters = Hyperparameters()
-    metamodel = MetaModel(hyperparameters)
-    metamodel.populate_from_embedding(MetaModel.get_m1_sep3_serial_embedding())
-    metamodel.generate_graph(dir_path)
 
 
 def get_flops_for_keras_model(model, input_shape):
@@ -432,13 +350,50 @@ def get_flops_for_cell_models_from_embeddings():
 
     print(flops)
 
+
+def analyze_micro_vs_macro():
+    macro_dir_path = os.path.join(evo_dir, 'static_analysis_samples')
+    micro_dir_path = os.path.join(evo_dir, 'cell_evo_benchmarks_6')
+    micro_results_path = os.path.join(micro_dir_path, 'results.json')
+
+    with open(micro_results_path, 'r') as fl:
+        micro_data = json.load(fl)
+
+    def is_list_in_list_of_lists(list_of_lists, list_to_search_for):
+        for l in list_of_lists:
+            if l == list_to_search_for:
+                return True
+        return False
+
+    micro_performances = [[1 - performance(x)[i] for x in micro_data['accuracies']] for i in range(2)]
+    all_meta_model_names = [x for x in os.listdir(macro_dir_path) if os.path.isdir(os.path.join(macro_dir_path, x))]
+    all_meta_models = [MetaModel.load(macro_dir_path, x, False) for x in all_meta_model_names]
+    select_meta_models = [x for x in all_meta_models if is_list_in_list_of_lists(micro_data['embeddings'], x.get_embedding())]
+    select_meta_model_accuracies = [x.metrics.metrics['accuracy'][-1] for x in select_meta_models]
+
+
+    x = [x for x in range(len(select_meta_models))]
+
+    plt.subplot(1, 1, 1)
+    plt.title('model v performance')
+    plt.xlabel('model')
+    plt.ylabel('performance / accuracy')
+    plt.xticks(x, ['nasnet', 'best cell model', '1x1 parallel', '3x3 parallel', '7x7 parallel', '3x3 serial'])
+
+    p_1 = plt.scatter(x, micro_performances[0])
+    p_2 = plt.scatter(x, micro_performances[1])
+    p_3 = plt.scatter(x, select_meta_model_accuracies)
+
+    plt.legend((p_1, p_2, p_3), ('normal cell model performance (subtracted from 1)', 'reduction cell model performance (subtracted from 1)', 'full model accuracy'))
+
+    plt.show()
+
+    avg_performances = np.mean(micro_performances, axis=0)
+    corr = np.corrcoef(avg_performances, select_meta_model_accuracies)[0][1]
+    r2 = corr**2
+    print(f'r: {corr}, r2: {r2}')
+
 if __name__ == '__main__':
-    # test_nasnet_cell_performance()
     # run_test('cell_task_evo_full')
-    # test_nth_in_dir('cell_task_evo_full', 0)
-    # test_nth_in_dir('cell_task_evo_full', -1)
-    # plot_performances()
-    # test_performance_curve()
-    test_benchmark_models()
-    # get_flops_for_cell_models_from_embeddings()
-    # get_graph()
+    # test_benchmark_models()
+    analyze_micro_vs_macro()
