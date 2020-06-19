@@ -146,6 +146,11 @@ def linreg_on_static_measurements():
 
     data_points = [x.process_stuff() for x in meta_models]
 
+    for x in meta_models:
+        acc = x.metrics.metrics['accuracy'][-1]
+        print(f'{x.model_name}, {acc}')
+
+
     reformed_data_points = []
 
     for point in data_points:
@@ -160,31 +165,11 @@ def linreg_on_static_measurements():
         reformed_data_points.append(data)
 
     reformed_data_points = np.array(reformed_data_points)
-    print(reformed_data_points)
-
-
-
-    # reformed_data_points = np.array([sum([[v for k,v in cell.items() if type(v) is not dict] for cell in x],[]) for x in data_points])
-
-    # reformed_data_points = reformed_data_points[:, :2]
-
 
     accuracy = np.array([x.metrics.metrics['accuracy'][-1] for x in meta_models]).astype(np.float64).reshape((-1, 1))
     accuracy, reformed_data_points = zip(*sorted(zip(accuracy, reformed_data_points), key=lambda x: x[0]))
     accuracy = np.array(accuracy)
     reformed_data_points = np.array(reformed_data_points)
-
-    # print(reformed_data_points.shape)
-    print(reformed_data_points)
-    print(accuracy)
-
-    # reduced_data_points = np.array([(x[0]['residual_ratio'], x[0]['num_outputs']) for x in data_points]).astype(np.float64).reshape((-1, 2)) #, x[1]['residual_ratio'], x[1]['num_outputs']
-
-    #
-    # print(data_points)
-    # print(reduced_data_points)
-    # print(reduced_data_points.shape)
-    # print(accuracy.shape)
 
     class LinRegModel:
         def __init__(self):
@@ -195,50 +180,68 @@ def linreg_on_static_measurements():
             self.vars = self.weights + [self.b]
 
         def __call__(self, x):
+
             # print(f'weights: {[w.numpy() for w in self.weights]}')
             num_input_features = tf.shape(x)[1]
 
             features = [x[:, i:i + 1] for i in range(num_input_features)]  # maybe add or modify features?
 
+
+
             def append_squared_feature(i, polynomial=2):
                 for p in range(1, polynomial):
-                    feature = features[i]
-                    for power in range(p):
-                        feature *= features[i]
+                    feature = features[i].copy()**(p+1)
+
                     features.append(feature)
 
 
 
+
+
             append_squared_feature(0, 2) #residual ratio, cell 0
-            # append_squared_feature(1, 2)
+            append_squared_feature(1, 2)
             append_squared_feature(8, 2) #residual ratio, cell 1
-            # append_squared_feature(9, 2)
+            append_squared_feature(9, 2)
             # append_squared_feature(3)
 
             outputs = [features[i] * self.weights[i] for i in range(len(features))]
 
-            return tf.reduce_sum(outputs, axis=0) + self.b
+            result = tf.reduce_sum(outputs, axis=0) + self.b
 
+
+
+            return result
 
     class LinRegEnsemble:
         def __init__(self):
-            self.models = [LinRegModel() for x in range(8)]
+            self.models = [LinRegModel() for x in range(32)]
             self.weights = sum([m.weights for m in self.models], [])
             self.vars = sum([m.vars for m in self.models], [])
         def __call__(self, x):
             outputs = [m(x) for m in self.models]
-            return tf.reduce_mean(outputs, axis=0)
+
+            result = tf.reduce_mean(outputs, axis=0)
+            return result
 
     model = LinRegEnsemble()
     optimizer = tf.keras.optimizers.SGD(.1)
+
+    def write_same_line(s):
+        blanks = ' '*100
+        sys.stdout.write(f'\r{blanks}')
+        sys.stdout.flush()
+        sys.stdout.write(f'\r')
+        sys.stdout.flush()
+        sys.stdout.write(s)
+        sys.stdout.flush()
 
     def train_step(data_points, nas_accuracy_actual):
         with tf.GradientTape() as tape:
             nas_accuracy_prediction = model(data_points)
             accuracy_loss = tf.reduce_mean(tf.square(nas_accuracy_actual - nas_accuracy_prediction))
-            l2_loss = (tf.reduce_sum(tf.square(model.weights)) / 2) * .05
+            l2_loss = (tf.reduce_sum(tf.square(model.weights)) / 2) * .001
             loss = accuracy_loss + l2_loss
-            print(f'total loss: {loss}, accuracy loss: {accuracy_loss}, l2 loss: {l2_loss}')
+            write_same_line(f'total loss: {loss}, accuracy loss: {accuracy_loss}, l2 loss: {l2_loss}')
             # print(f'actuals: {nas_accuracy_actual}')
             # print(f'preds: {nas_accuracy_prediction}')
 
@@ -248,26 +251,80 @@ def linreg_on_static_measurements():
         optimizer.apply_gradients(zip(grad, variables))
 
 
-    for i in range(100):
-        train_step(reformed_data_points, accuracy)
 
-    nas_accuracy_prediction = model(reformed_data_points)
-
-    lines_to_plot = [accuracy, nas_accuracy_prediction]
-    # lines_to_plot = [reformed_data_points[:,:1], reformed_data_points[:,2:3]]
-    # lines_to_plot = [reformed_data_points[:,1:2], reformed_data_points[:,3:4]]
+    for i in range(300):
+        train_step(reformed_data_points.copy(), accuracy)
+    print()
 
 
-    acc = np.concatenate(lines_to_plot).reshape((len(accuracy), len(lines_to_plot)), order='F')
-    x = [x for x in range(len(accuracy))]
-    plt.subplot(1, 1, 1)
-    plt.plot(x, acc)
 
-    plt.title('x v y')
-    plt.xlabel('x')
-    plt.ylabel('y')
+    nas_accuracy_prediction = model(reformed_data_points.copy())
 
+    x = np.array([x for x in range(len(accuracy))])
+    # lines_to_plot = [accuracy, nas_accuracy_prediction]
+    # acc = np.concatenate(lines_to_plot).reshape((len(accuracy), len(lines_to_plot)), order='F')
+
+    accuracy_v_residual_ratio = list(zip(accuracy, reformed_data_points[:,0], reformed_data_points[:,8]))
+    accuracy_v_num_outputs = list(zip(accuracy, reformed_data_points[:,1], reformed_data_points[:,9]))
+    accuracy_v_shortest_path_spread = list(zip(accuracy, reformed_data_points[:, 2], reformed_data_points[:, 10]))
+    accuracy_v_shortest_path_power = list(zip(accuracy, reformed_data_points[:, 3], reformed_data_points[:, 11]))
+    accuracy_v_avg_path_spread = list(zip(accuracy, reformed_data_points[:, 4], reformed_data_points[:, 12]))
+    accuracy_v_avg_path_power = list(zip(accuracy, reformed_data_points[:, 5], reformed_data_points[:, 13]))
+    accuracy_v_longest_path_spread = list(zip(accuracy, reformed_data_points[:, 6], reformed_data_points[:, 14]))
+    accuracy_v_longest_path_power = list(zip(accuracy, reformed_data_points[:, 7], reformed_data_points[:, 15]))
+
+    accuracy_vs_predicted = list(zip(accuracy, nas_accuracy_prediction[:,0]))
+
+    # print(reformed_data_points)
+
+    cols = 3
+    rows = 3
+
+
+    plt.subplot(rows, cols, 1)
+    plt.plot(x, accuracy_v_residual_ratio)
+    plt.title('accuracy v residual ratio')
+    # plt.xlabel('x')
+    # plt.ylabel('y')
+
+    plt.subplot(rows, cols, 2)
+    plt.plot(x, accuracy_v_num_outputs)
+    plt.title('accuracy v num outputs')
+
+    plt.subplot(rows, cols, 3)
+    plt.plot(x, accuracy_vs_predicted)
+    plt.title('accuracy v prediction')
+
+    plt.subplot(rows, cols, 4)
+    plt.plot(x, accuracy_v_shortest_path_spread)
+    plt.title('accuracy v shortest path spread')
+
+    plt.subplot(rows, cols, 5)
+    plt.plot(x, accuracy_v_avg_path_spread)
+    plt.title('accuracy v avg path spread')
+
+    plt.subplot(rows, cols, 6)
+    plt.plot(x, accuracy_v_longest_path_spread)
+    plt.title('accuracy v longest spread')
+
+    plt.subplot(rows, cols, 7)
+    plt.plot(x, accuracy_v_shortest_path_power)
+    plt.title('accuracy v shortest path power')
+
+    plt.subplot(rows, cols, 8)
+    plt.plot(x, accuracy_v_avg_path_power)
+    plt.title('accuracy v avg path power')
+
+    plt.subplot(rows, cols, 9)
+    plt.plot(x, accuracy_v_longest_path_power)
+    plt.title('accuracy v longest power')
+
+    corr = np.corrcoef(accuracy[:, 0], nas_accuracy_prediction[:, 0])[0][1]
+    print(f'r: {corr}, r2: {corr ** 2}')
     plt.show()
+
+
+
 
 def linreg_test():
     x = np.linspace(0, 99, 100)
@@ -339,7 +396,7 @@ def linreg_test():
 
 if __name__ == '__main__':
     # test_residual_ratio()
-    multi_model_test()
+    # multi_model_test()
     # analyze_stuff()
-    # linreg_on_static_measurements()
+    linreg_on_static_measurements()
     # linreg_test()

@@ -7,7 +7,6 @@ This repository contains a Tensorflow 2.1 implementation of a [NASNet](https://a
 - A handful of model visualization and analysis tools
 
 The project also contains a handful of sandboxes used for different experiments, including:
-- "Static Model Analysis" - Attempts at using static analysis of derivative cell properties to estimate cell performance. It hasn't worked so far.
 - "AutoDataset" - Attempts to evaluate cell architectures apart from the network macro-architecture. It didn't work, and here's a graphic with some results:
 <p align="center">
 <img src="res/modelresults.png" width="778" height="641"/>

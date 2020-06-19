@@ -127,8 +127,6 @@ class MetaCell(SerialData):
                 final_paths.append(path)
         final_paths.sort(key=lambda x: len(x))
 
-
-
         path_data = []
         def get_spread(op_type: OperationType):
             if op_type == OperationType.SEP_3X3:
@@ -180,10 +178,8 @@ class MetaCell(SerialData):
             for data_key, data_item in path_data_organized_by_length[key].items():
                 path_data_organized_by_length[key][data_key] /= len(path_indexes)
 
-        # print(f'data avg: {path_data_organized_by_length}')
-        # print(f'path counts: {path_counts_organized_by_length}')
-
         path_lengths = paths_organized_by_length.keys()
+
         num_paths = sum([path_counts_organized_by_length[i] for i in path_lengths])
 
         avg_data = {'spread': 0, 'spread_power': 0}
@@ -191,13 +187,14 @@ class MetaCell(SerialData):
             for data_key, data_val in avg_data.items():
                 avg_data[data_key] += val[data_key] * (path_counts_organized_by_length[key] / num_paths)
 
-        shortest_path_avg = path_data_organized_by_length[min(path_lengths)]
-        longest_path_avg = path_data_organized_by_length[max(path_lengths)]
+        shortest_path_avg = path_data_organized_by_length[min(path_lengths)].copy()
+        longest_path_avg = path_data_organized_by_length[max(path_lengths)].copy()
         num_outputs_norm = len(indexes) / len(self.groups)
 
         def norm_spread_data(d):
             d['spread'] /= (5*3) #max blocks * max spread
-            d['spread_power'] = (1/d['spread_power']) / (1/((1/49)**5))
+            # d['spread_power'] = (1/d['spread_power']) / (1/((1/49)**5))
+            d['spread_power'] = np.log2((1/d['spread_power']) / (1/((1/49)**5))) / np.log2((1/49)**5)
             return d
 
         return {
