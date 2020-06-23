@@ -23,20 +23,14 @@ def test_residual_ratio():
     model.cells[0].process_stuff()
     model.cells[1].process_stuff()
 
-def multi_model_test():
-    hyperparameters = Hyperparameters()
+def multi_model_test(dir_name = 'static_analysis_samples', num_models=32, hparams=None, emb_queue=None):
+    hyperparameters = Hyperparameters() if hparams is None else hparams
+
     dataset = ImageDataset.get_cifar10()
 
-    embeddings_queue = [
-        MetaModel.get_nasnet_embedding(),
-        MetaModel.get_s1_embedding(),
-        MetaModel.get_identity_embedding(),
-        MetaModel.get_m1_sep3_embedding(),
-        MetaModel.get_m1_sep7_embedding(),
-        MetaModel.get_m1_sep3_serial_embedding(),
-    ]
+    embeddings_queue = [] if emb_queue is None else emb_queue
 
-    dir_path = os.path.join(evo_dir, 'static_analysis_samples')
+    dir_path = os.path.join(evo_dir, dir_name)
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -76,10 +70,11 @@ def multi_model_test():
         eval_model(embedding=embedding)
 
 
-    count = 0
-    while True:
-        print(f'Evaluating non-queued model {count}')
-        count += 1
+    num_done = len([x for x in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, x))])
+    num_remaining = num_models - num_done
+
+    for count in range(num_remaining)
+        print(f'Evaluating non-queued model {count} of {num_remaining}')
         eval_model()
 
 def analyze_stuff():
@@ -87,6 +82,8 @@ def analyze_stuff():
     model_names = [x for x in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, x))]
 
     meta_models = [MetaModel.load(dir_path, x, False) for x in model_names]
+    meta_models.sort(key=lambda x: x.metrics.metrics['accuracy'][-1])
+    meta_models = meta_models[int(len(meta_models)/2):]
 
     accuracies = np.array([np.array(x.metrics.metrics['accuracy']) for x in meta_models if len(x.metrics.metrics['accuracy']) == x.hyperparameters.parameters['TRAIN_ITERATIONS']])
 
@@ -101,7 +98,7 @@ def analyze_stuff():
     avg_z_score = np.mean(zscores, axis=1)
     coorelation = np.corrcoef(avg_z_score, zscores[:, -1])
     print(f'avg z score coorelation with final z score: {coorelation[0,1]}')
-    z_mean_over_time = np.array([[np.mean(np.array(x[:i])) if i > 0 else 0.001 for i in range(num_datapoints_per_sample)] for x in zscores])
+    z_mean_over_time = np.array([[np.mean(np.array(x[:i])) if i > 0 else x[i] for i in range(num_datapoints_per_sample)] for x in zscores])
     correlations_over_time_mean = np.array([np.corrcoef(z_mean_over_time[:, i], zscores[:, -1])[0,1] for i in range(num_datapoints_per_sample)])
     correlations_over_time = np.array([np.corrcoef(zscores[:, i], zscores[:, -1])[0,1] for i in range(num_datapoints_per_sample)])
     zscores = np.swapaxes(zscores, 0, 1)
@@ -138,6 +135,7 @@ def analyze_stuff():
     ranked_models.sort(key=lambda x: x[1])
     print(ranked_models)
 
+
 def linreg_on_static_measurements():
     dir_path = os.path.join(evo_dir, 'static_analysis_samples')
     model_names = [x for x in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, x))]
@@ -145,11 +143,6 @@ def linreg_on_static_measurements():
     meta_models = [x for x in meta_models if len(x.metrics.metrics['accuracy']) == x.hyperparameters.parameters['TRAIN_ITERATIONS']]
 
     data_points = [x.process_stuff() for x in meta_models]
-
-    for x in meta_models:
-        acc = x.metrics.metrics['accuracy'][-1]
-        print(f'{x.model_name}, {acc}')
-
 
     reformed_data_points = []
 
@@ -168,8 +161,25 @@ def linreg_on_static_measurements():
 
     accuracy = np.array([x.metrics.metrics['accuracy'][-1] for x in meta_models]).astype(np.float64).reshape((-1, 1))
     accuracy, reformed_data_points = zip(*sorted(zip(accuracy, reformed_data_points), key=lambda x: x[0]))
-    accuracy = np.array(accuracy)
+
+    accuracy = scipy.stats.zscore(np.array(accuracy), axis=0)
+
+    # print(accuracy)
+    # print(accuracy.min(axis=0))
+    # print(accuracy.max(axis=0))
+
+    accuracy = (accuracy - accuracy.min(axis=0)) / (accuracy.max(axis=0) - accuracy.min(axis=0))
+    # print(accuracy)
     reformed_data_points = np.array(reformed_data_points)
+
+    for m in meta_models:
+        acc = m.metrics.metrics['accuracy'][-1]
+        print(f'{m.model_name} {acc}')
+
+
+    ensemble_size = 4
+    l2_weight = 0.001
+    l1_weight = 0.001
 
     class LinRegModel:
         def __init__(self):
@@ -200,8 +210,12 @@ def linreg_on_static_measurements():
 
             append_squared_feature(0, 2) #residual ratio, cell 0
             append_squared_feature(1, 2)
-            append_squared_feature(8, 2) #residual ratio, cell 1
-            append_squared_feature(9, 2)
+
+            append_squared_feature(4, 2)  # residual ratio, cell 0
+            append_squared_feature(5, 2)
+
+            # append_squared_feature(8, 2) #residual ratio, cell 1
+            # append_squared_feature(9, 2)
             # append_squared_feature(3)
 
             outputs = [features[i] * self.weights[i] for i in range(len(features))]
@@ -214,7 +228,7 @@ def linreg_on_static_measurements():
 
     class LinRegEnsemble:
         def __init__(self):
-            self.models = [LinRegModel() for x in range(32)]
+            self.models = [LinRegModel() for x in range(ensemble_size)]
             self.weights = sum([m.weights for m in self.models], [])
             self.vars = sum([m.vars for m in self.models], [])
         def __call__(self, x):
@@ -223,6 +237,28 @@ def linreg_on_static_measurements():
             result = tf.reduce_mean(outputs, axis=0)
             return result
 
+    class MLP:
+        def __init__(self):
+            reg = tf.keras.regularizers.l2(l2_weight)
+            m_input = tf.keras.Input([16])
+
+            l = tf.keras.layers.Dense(32, activation=tf.nn.relu, dtype=tf.float64, kernel_regularizer=reg)
+            self.losses = l.losses
+            layer = l(m_input)
+            l = tf.keras.layers.Dense(32, activation=tf.nn.relu, dtype=tf.float64, kernel_regularizer=reg)
+            self.losses += l.losses
+            layer =  l(layer)
+            l = tf.keras.layers.Dense(1, activation=tf.nn.sigmoid, dtype=tf.float64, kernel_regularizer=reg)
+            self.losses += l.losses
+            layer = l(layer)
+            self.model = tf.keras.models.Model(inputs=m_input, outputs=layer)
+            self.vars = self.model.trainable_variables
+            self.weights = self.vars
+        def __call__(self, x):
+            return self.model(x)
+
+    # model = MLP()
+    # model = LinRegModel()
     model = LinRegEnsemble()
     optimizer = tf.keras.optimizers.SGD(.1)
 
@@ -239,9 +275,14 @@ def linreg_on_static_measurements():
         with tf.GradientTape() as tape:
             nas_accuracy_prediction = model(data_points)
             accuracy_loss = tf.reduce_mean(tf.square(nas_accuracy_actual - nas_accuracy_prediction))
-            l2_loss = (tf.reduce_sum(tf.square(model.weights)) / 2) * .001
-            loss = accuracy_loss + l2_loss
-            write_same_line(f'total loss: {loss}, accuracy loss: {accuracy_loss}, l2 loss: {l2_loss}')
+            l2_loss = (tf.reduce_sum(tf.square(model.weights)) / 2) * l2_weight
+            # l2_loss = model.losses
+            # l2_loss = 0
+            l1_loss = tf.reduce_sum(tf.abs(model.weights)) * l1_weight
+            # reg_loss = l2_loss
+            reg_loss = l1_loss
+            loss = accuracy_loss + reg_loss
+            write_same_line(f'total loss: {loss}, accuracy loss: {accuracy_loss}, reg loss: {reg_loss}')
             # print(f'actuals: {nas_accuracy_actual}')
             # print(f'preds: {nas_accuracy_prediction}')
 
@@ -251,14 +292,18 @@ def linreg_on_static_measurements():
         optimizer.apply_gradients(zip(grad, variables))
 
 
+    rf_dp = reformed_data_points.copy()
+    mask = np.ones(rf_dp.shape, dtype=bool)
+    mask[:, [2,3,4,5,10,11,12,13]] = False
+    rf_dp = np.reshape(rf_dp[mask], (reformed_data_points.shape[0], -1))
 
     for i in range(300):
-        train_step(reformed_data_points.copy(), accuracy)
+        train_step(rf_dp.copy(), accuracy)
     print()
 
 
 
-    nas_accuracy_prediction = model(reformed_data_points.copy())
+    nas_accuracy_prediction = model(rf_dp.copy())
 
     x = np.array([x for x in range(len(accuracy))])
     # lines_to_plot = [accuracy, nas_accuracy_prediction]
@@ -322,8 +367,6 @@ def linreg_on_static_measurements():
     corr = np.corrcoef(accuracy[:, 0], nas_accuracy_prediction[:, 0])[0][1]
     print(f'r: {corr}, r2: {corr ** 2}')
     plt.show()
-
-
 
 
 def linreg_test():
@@ -393,10 +436,87 @@ def linreg_test():
     plt.show()
 
 
+def test_mutations_on_median():
+    src_dir_path = os.path.join(evo_dir, 'static_analysis_samples')
+    model_names = [x for x in os.listdir(src_dir_path) if os.path.isdir(os.path.join(src_dir_path, x))]
+    meta_models = [MetaModel.load(src_dir_path, x, False) for x in model_names]
+    meta_models = [x for x in meta_models if len(x.metrics.metrics['accuracy']) == x.hyperparameters.parameters['TRAIN_ITERATIONS']]
+    meta_models.sort(key=lambda x: x.metrics.metrics['accuracy'][-1])
+    target_model = meta_models[int(len(meta_models)/2)]
+
+    dest_dir_path = os.path.join(evo_dir, 'static_analysis_mutations')
+    if not os.path.exists(dest_dir_path):
+        os.makedirs(dest_dir_path)
+
+    dataset = ImageDataset.get_cifar10()
+
+    for _ in range(16):
+        model =  MetaModel.load(src_dir_path, target_model.model_name, True)
+        model.hyperparameters.parameters['TRAIN_ITERATIONS'] += 1
+        model.hyperparameters.parameters['TRAIN_EPOCHS'] = 1
+        model.mutate()
+        model.evaluate(dataset)
+        model.save_metadata(dest_dir_path)
+        model.save_model(dest_dir_path)
+        model.generate_graph(dest_dir_path)
+        tf.keras.backend.clear_session()
+
+def multi_config_test():
+    embedding_queue = [
+        MetaModel.get_nasnet_embedding(),
+        MetaModel.get_s1_embedding(),
+        MetaModel.get_identity_embedding(),
+        MetaModel.get_m1_sep3_embedding(),
+        MetaModel.get_m1_sep7_embedding(),
+        MetaModel.get_m1_sep3_serial_embedding(),
+    ]
+
+    epochs = 24
+
+    def default_params() -> Hyperparameters:
+        params = Hyperparameters()
+        params.parameters['REDUCTION_EXPANSION_FACTOR'] = 2
+        params.parameters['SGDR_EPOCHS_PER_RESTART'] = epochs
+        params.parameters['TRAIN_ITERATIONS'] = epochs
+        params.parameters['MAXIMUM_LEARNING_RATE'] = 0.025
+        params.parameters['MINIMUM_LEARNING_RATE'] = 0
+        params.parameters['DROP_PATH_TOTAL_STEPS_MULTI'] = 1
+        params.parameters['BATCH_SIZE'] = 16
+        return params
+
+    def medium_params() -> Hyperparameters:
+        params = default_params()
+        params.parameters['TARGET_FILTER_DIMS'] = 32
+        params.parameters['NORMAL_CELL_N'] = 5
+        params.parameters['CELL_LAYERS'] = 3
+        return params
+
+    def small_params() -> Hyperparameters:
+        params = default_params()
+        params.parameters['TARGET_FILTER_DIMS'] = 24
+        params.parameters['NORMAL_CELL_N'] = 3
+        params.parameters['CELL_LAYERS'] = 3
+        return params
+
+    def tiny_params() -> Hyperparameters:
+        params = default_params()
+        params.parameters['TARGET_FILTER_DIMS'] = 16
+        params.parameters['NORMAL_CELL_N'] = 2
+        params.parameters['CELL_LAYERS'] = 3
+        return params
+
+
+    multi_model_test('zs_medium', num_models=32, hparams=medium_params())
+    multi_model_test('zs_small', num_models=32, hparams=small_params())
+    multi_model_test('zs_tiny', num_models=32, hparams=tiny_params())
+
+
+
 
 if __name__ == '__main__':
     # test_residual_ratio()
     # multi_model_test()
-    # analyze_stuff()
-    linreg_on_static_measurements()
+    analyze_stuff()
+    # linreg_on_static_measurements()
     # linreg_test()
+    # test_mutations_on_median()

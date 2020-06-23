@@ -94,7 +94,6 @@ class GroupDataHolder:
                 DropPathOperation(cell_position_as_ratio, drop_path_tracker)
             ]
 
-
         else:
 
             for op in meta_group.operations:
@@ -379,7 +378,7 @@ class ModelDataHolder:
 
         def mutate_layer(index):
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
-            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(new_operation, previous_input_shape[-1])
+            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(new_operation, previous_input_shape[-1], hyperparameters.parameters['TARGET_FILTER_DIMS'])
             self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
             print('--finished building mutated layer (operation)')
 
@@ -398,7 +397,7 @@ class ModelDataHolder:
 
         def mutate_layer(index):
             previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
-            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(operation_type, previous_input_shape[-1])
+            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(operation_type, previous_input_shape[-1], hyperparameters.parameters['TARGET_FILTER_DIMS'])
             self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
             self.cells[index].groups[group_index].attachments[operation_index] = new_hidden_state
             print('--finished building mutated layer (state)')
