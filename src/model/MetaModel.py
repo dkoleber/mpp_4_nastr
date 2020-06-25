@@ -82,8 +82,6 @@ class MetaCell(SerialData):
 
     def process_stuff(self):
 
-
-
         # get residual ratios
         self.groups.sort(key=lambda x: x.operations[0].attachment_index)
         for g in self.groups:
@@ -290,13 +288,12 @@ class MetaModel(SerialData):
             # don't try to change the state of the first group since it need to point to the first two inputs of the block
             if group_index != 0:
                 previous_attachment = select_item.actual_attachment
-                new_attachment = previous_attachment
                 # ensure that the mutation doesn't result in the same attachment as before
-                while new_attachment == previous_attachment:
-                    new_attachment = int(mutation_subtype * select_item.attachment_index) #TODO: EXCLUSIVE RANDOM
+                possible_attachments = [i for i in range(select_item.attachment_index) if i != previous_attachment]
+                new_attachment = possible_attachments[int(mutation_subtype * len(possible_attachments))]
 
                 if self.keras_model_data is not None:
-                    self.keras_model_data.hidden_state_mutation(self.hyperparameters, cell_index, group_index, item_index, new_attachment, select_item.operation_type)
+                    self.keras_model_data.hidden_state_mutation(cell_index, group_index, item_index, new_attachment, select_item.operation_type)
                 select_item.actual_attachment = new_attachment
                 print(mutation_string + f'hidden state mutation from {previous_attachment} to {select_item.actual_attachment}')
             else:
@@ -307,7 +304,7 @@ class MetaModel(SerialData):
             previous_op = select_item.operation_type
             select_item.operation_type = int(mutation_subtype * (OperationType.SEP_1X7_7X1 + 1))
             if previous_op != select_item.operation_type and self.keras_model_data is not None:
-                self.keras_model_data.operation_mutation(self.hyperparameters, cell_index, group_index, item_index, select_item.operation_type)
+                self.keras_model_data.operation_mutation(cell_index, group_index, item_index, select_item.operation_type)
             print(mutation_string + f'operation type mutation from {previous_op} to {select_item.operation_type}')
 
 
@@ -429,23 +426,11 @@ class MetaModel(SerialData):
 
     def save_model(self, dir_path: str = model_save_dir):
         if self.keras_model is not None:
-            custom_objects = {
-                'SeperableConvolutionOperation': SeperableConvolutionOperation,
-                'AveragePoolingOperation': AveragePoolingOperation,
-                'MaxPoolingOperation': MaxPoolingOperation,
-                'DoublySeperableConvoutionOperation': DoublySeperableConvoutionOperation,
-                'DimensionalityReductionOperation': DimensionalityChangeOperation,
-                'IdentityOperation': IdentityOperation,
-                'DenseOperation': DenseOperation,
-                'Relu6Layer': Relu6Layer
-            }
-
             print(f'saving graph for {self.model_name}')
             dir_name = os.path.join(dir_path, self.model_name)
             if not os.path.exists(dir_name):
                 os.mkdir(dir_name)
             save_time = time.time()
-
 
             ModelUtilities.save_keras_model(self.keras_model, dir_name, self.model_name)
             save_time = time.time() - save_time
@@ -490,7 +475,7 @@ class MetaModel(SerialData):
                 'AveragePoolingOperation': AveragePoolingOperation,
                 'MaxPoolingOperation': MaxPoolingOperation,
                 'DoublySeperableConvoutionOperation': DoublySeperableConvoutionOperation,
-                'DimensionalityChangeOperation': DimensionalityChangeOperation,
+                'ConvolutionalOperation': ConvolutionalOperation,
                 'IdentityReductionOperation': IdentityReductionOperation,
                 'IdentityOperation': IdentityOperation,
                 'DenseOperation': DenseOperation,
@@ -579,8 +564,6 @@ class MetaModel(SerialData):
 
     def get_embedding(self):
         embedding = []
-        embedding.append(self.hyperparameters.parameters['NORMAL_CELL_N'])
-        embedding.append(self.hyperparameters.parameters['CELL_LAYERS'])
 
         for cell in self.cells:
             for group in cell.groups:
@@ -598,11 +581,6 @@ class MetaModel(SerialData):
         num_cell_inputs = 2
 
         dup_embedding = embedding.copy()
-
-        self.hyperparameters.parameters['NORMAL_CELL_N'] = dup_embedding[0]
-        del dup_embedding[0]
-        self.hyperparameters.parameters['CELL_LAYERS'] = dup_embedding[0]
-        del dup_embedding[0]
 
         for cell_ind in range(num_cells):
             self.cells.append(MetaCell(num_cell_inputs))
@@ -654,7 +632,7 @@ class MetaModel(SerialData):
 
     @staticmethod
     def get_nasnet_embedding() -> List:
-        return [5, 3,
+        return [
          OperationType.SEP_3X3, 0,  # NORMAL CELL
          OperationType.IDENTITY, 0,
          OperationType.SEP_3X3, 1,
@@ -678,29 +656,29 @@ class MetaModel(SerialData):
 
     @staticmethod
     def get_identity_embedding() -> List:
-        embedding = [5, 3]
+        embedding = []
         embedding.extend([0] * 40)
         return embedding
 
     @staticmethod
     def get_s1_embedding() -> List:
-        return [5, 3, 6, 0, 0, 1, 0, 0, 6, 1, 4, 1, 3, 2, 5, 4, 5, 3, 2, 1, 0, 1, 3, 0, 0, 1, 4, 2, 1, 0, 1, 1, 6, 3, 3, 4, 5, 0, 5, 3, 2, 4]
+        return [6, 0, 0, 1, 0, 0, 6, 1, 4, 1, 3, 2, 5, 4, 5, 3, 2, 1, 0, 1, 3, 0, 0, 1, 4, 2, 1, 0, 1, 1, 6, 3, 3, 4, 5, 0, 5, 3, 2, 4]
 
     @staticmethod
     def get_m1_sep7_embedding() -> List:
-        embedding = [5, 3]
+        embedding = []
         embedding.extend([OperationType.SEP_7X7, 0] * 20)
         return embedding
 
     @staticmethod
     def get_m1_sep3_embedding() -> List:
-        embedding = [5, 3]
+        embedding = []
         embedding.extend([OperationType.SEP_3X3, 0] * 20)
         return embedding
 
     @staticmethod
     def get_m1_sep3_serial_embedding() -> List:
-        embedding = [5, 3]
+        embedding = []
         for j in range(2):
             embedding.extend([OperationType.SEP_3X3, 0, OperationType.SEP_3X3, 1])
             for i in range(1, 5):

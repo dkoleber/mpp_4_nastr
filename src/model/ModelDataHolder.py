@@ -14,41 +14,11 @@ from model.CustomLayers import *
 
 class ModelParsingHelper:
     def __init__(self):
-        self.counts = {
-            'identity_operation':0,
-            'identity_reduction_operation': 0,
-            'seperable_convolution_operation': 0,
-            'average_pooling_operation': 0,
-            'max_pooling_operation': 0,
-            'doubly_seperable_convolution_operation': 0,
-            'batch_normalization': 0,
-            'add': 0,
-            'conv2d': 0,
-            'concatenate': 0,
-            'dimensionality_change_operation': 0,
-            'relu6_layer': 0,
-            'lambda': 0,
-            'dense_operation': 0
-        }
+        self.counts = {}
 
     @staticmethod
     def get_op_name(op:OperationType, requires_reduction: bool = False):
-        if op == OperationType.IDENTITY:
-            if requires_reduction:
-                return 'identity_reduction_operation'
-            else:
-                return 'identity_operation'
-
-        vals = {
-            OperationType.SEP_3X3: 'seperable_convolution_operation',
-            OperationType.SEP_5X5: 'seperable_convolution_operation',
-            OperationType.SEP_7X7: 'seperable_convolution_operation',
-            OperationType.DIL_3X3: 'seperable_convolution_operation',
-            OperationType.AVG_3X3: 'average_pooling_operation',
-            OperationType.MAX_3X3: 'max_pooling_operation',
-            OperationType.SEP_1X7_7X1: 'doubly_seperable_convolution_operation'
-        }
-        return vals[op]
+        return OperationType.lookup_opname(op, requires_reduction)
 
     @staticmethod
     def _get_layer_name(name, number):
@@ -59,72 +29,89 @@ class ModelParsingHelper:
 
     def get_next_name(self, name):
         if name not in self.counts:
+            self.counts[name] = 1
             return name
         else:
             result = ModelParsingHelper._get_layer_name(name, self.counts[name])
             self.counts[name] += 1
             return result
 
-    def get_next_name_for_op(self, op, input_dim: int = 1, output_dim: int = 1):
-        layer = KerasOperationFactory.get_operation(op, input_dim, output_dim)
+    def get_next_name_for_op(self, op, input_dim: int, output_dim: int, stride: int):
+        layer = KerasOperationFactory.get_operation(op, input_dim, output_dim, stride)
         layer.add_self_to_parser_counts(self)
-        return self.get_next_name(ModelParsingHelper.get_op_name(op, input_dim != output_dim))
+        return self.get_next_name(ModelParsingHelper.get_op_name(op, (input_dim != output_dim or stride != 1)))
 
 
 class GroupDataHolder:
-    def __init__(self, input_dim: int, target_dim: int, meta_group: MetaGroup, drop_path_tracker: DropPathTracker, cell_position_as_ratio: float, parser: ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
-        self.input_dim = input_dim
+    def __init__(self,
+                 input_dim: int,
+                 target_dim: int,
+                 meta_group: MetaGroup,
+                 drop_path_tracker: DropPathTracker,
+                 cell_position_as_ratio: float,
+                 stride: int = 1,
+                 parser: ModelParsingHelper = None,
+                 keras_model:tf.keras.models.Model = None):
+        self.cell_input_dim = input_dim
         self.target_dim = target_dim
         self.drop_path_tracker = drop_path_tracker
+        self.cell_stride = stride
+        self.num_ops = len(meta_group.operations)
 
         self.ops = []
-        self.attachments: List[int] = []
-
-        self.op_types = [x.operation_type for x in meta_group.operations]
+        self.attachments = [x.actual_attachment for x in meta_group.operations]
 
         if keras_model is None:
-
-            for op in meta_group.operations:
-                self.ops.append(KerasOperationFactory.get_operation(op.operation_type, self.input_dim, self.target_dim))
-                self.attachments.append(op.actual_attachment)
+            for index, op in enumerate(meta_group.operations):
+                self.ops.append(KerasOperationFactory.get_cell_operation(op.operation_type, self.cell_input_dim, self.target_dim, self.cell_stride, op.actual_attachment))
 
             self.addition_layer = tf.keras.layers.Add()
-            self.drop_path_ops = [
-                DropPathOperation(cell_position_as_ratio, drop_path_tracker),
-                DropPathOperation(cell_position_as_ratio, drop_path_tracker)
-            ]
+            self.drop_path_ops = [DropPathOperation(cell_position_as_ratio, drop_path_tracker) for _ in range(self.num_ops)]
 
         else:
 
-            for op in meta_group.operations:
-                if op.operation_type == OperationType.IDENTITY and input_dim == target_dim:
-                    self.ops.append(KerasOperationFactory.get_operation(OperationType.IDENTITY, self.input_dim, self.target_dim))
+            for index, op in enumerate(meta_group.operations):
+                actual_input_dim = self.cell_input_dim if op.actual_attachment < 2 else self.target_dim
+                actual_stride = self.cell_stride if op.actual_attachment < 2 else 1
+                if op.operation_type == OperationType.IDENTITY and actual_input_dim == target_dim and actual_stride == 1:
+                    self.ops.append(KerasOperationFactory.get_operation(OperationType.IDENTITY, actual_input_dim, self.target_dim, self.cell_stride))
+                    parser.get_next_name('identity_operation')
                 else:
-                    self.ops.append(keras_model.get_layer(parser.get_next_name_for_op(op.operation_type, self.input_dim, self.target_dim)))
-                self.attachments.append(op.actual_attachment)
+                    self.ops.append(keras_model.get_layer(parser.get_next_name_for_op(op.operation_type, actual_input_dim, self.target_dim, self.cell_stride)))
 
             self.addition_layer = keras_model.get_layer(parser.get_next_name('add'))
-            self.drop_path_ops = [
-                DropPathOperation(cell_position_as_ratio, drop_path_tracker),
-                DropPathOperation(cell_position_as_ratio, drop_path_tracker)
-            ] #TODO
+            self.drop_path_ops = [DropPathOperation(cell_position_as_ratio, drop_path_tracker) for _ in range(self.num_ops)]
 
     def build(self, inputs):
         results = []
         for index, obj in enumerate(self.ops):
             op = obj(inputs[self.attachments[index]])
-            if self.op_types[index] != OperationType.IDENTITY:
+            if type(obj) is not IdentityOperation:
                 op = self.drop_path_ops[index](op)
             results.append(op)
+
+        # shapes = [x.shape.as_list()[1:] for x in inputs]
+        # names = [x.__repr__() for x in self.ops]
+        # print(f'attachments: {self.attachments}, ops: {names}, target: {self.target_dim}, {shapes}')
 
         return self.addition_layer(results)
 
 
 class CellDataHolder:
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, drop_path_tracker: DropPathTracker, cell_position_as_ratio, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None):
+    def __init__(self,
+                 input_dim: int,
+                 target_dim: int,
+                 meta_cell: MetaCell,
+                 reduce_current: bool,
+                 drop_path_tracker: DropPathTracker,
+                 cell_position_as_ratio,
+                 stride: int = 1,
+                 parser: ModelParsingHelper = None,
+                 keras_model: tf.keras.models.Model = None):
         self.target_dim = target_dim
         self.input_dim = input_dim
         self.reduce_current = reduce_current
+        self.stride = stride
 
         # target dim is the dimension that we want the groups to be outputting
         # input dim is the dimension that the previous cell produced
@@ -140,13 +127,13 @@ class CellDataHolder:
 
         if keras_model is None:
             for group in meta_cell.groups:
-                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, drop_path_tracker, cell_position_as_ratio))
+                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, drop_path_tracker, cell_position_as_ratio, self.stride))
                 for op in group.operations:
                     used_group_indexes.append(op.actual_attachment)
 
         else:
             for group in meta_cell.groups:
-                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, drop_path_tracker, cell_position_as_ratio, parser, keras_model))
+                self.groups.append(GroupDataHolder(self.input_dim, self.target_dim, group, drop_path_tracker, cell_position_as_ratio, self.stride, parser, keras_model))
                 for op in group.operations:
                     used_group_indexes.append(op.actual_attachment)
 
@@ -160,20 +147,21 @@ class CellDataHolder:
             if len(self.unused_group_indexes) > 1:
                 self.post_concat = tf.keras.layers.Concatenate(axis=3)
 
-            if not self.reduce_current and self.output_dim != self.input_dim: #reduce residual to current output
-                self.post_dim_change = DimensionalityChangeOperation(self.input_dim, self.output_dim)
+            if not self.reduce_current and (self.stride != 1 or self.output_dim != self.input_dim): #reduce residual to current output
 
-            if self.reduce_current and self.output_dim != self.target_dim:
-                self.post_dim_change = DimensionalityChangeOperation(self.output_dim, self.target_dim)
+                self.post_dim_change = ConvolutionalOperation(self.input_dim, self.output_dim, self.stride)
+
+            if self.reduce_current and (self.stride != 1 or self.output_dim != self.target_dim):
+                self.post_dim_change = ConvolutionalOperation(self.output_dim, self.target_dim, self.stride)
                 self.output_dim = self.target_dim
 
         else:
             if len(self.unused_group_indexes) > 1:
                 self.post_concat = keras_model.get_layer(parser.get_next_name('concatenate'))
 
-            if (not self.reduce_current and self.output_dim != self.input_dim) or (self.reduce_current and self.output_dim != self.target_dim):
+            if self.stride != 1 or (not self.reduce_current and self.output_dim != self.input_dim) or (self.reduce_current and self.output_dim != self.target_dim):
                 try:
-                    self.post_dim_change = keras_model.get_layer(parser.get_next_name('dimensionality_change_operation'))
+                    self.post_dim_change = keras_model.get_layer(OperationType.lookup_opname(OperationType.CONV_3X3))
                     self.post_dim_change.add_self_to_parser_counts(parser)
 
                 except:
@@ -181,7 +169,7 @@ class CellDataHolder:
                     # Since the reduced residual isn't actually used in the output, then it's not serialized with the model
                     # and therefore can't be loaded. However, we still need to account for its name,
                     # since it still existed (and impacted subsequent op names) prior to the model being serialized.
-                    temp_dim = DimensionalityChangeOperation(1, 1)
+                    temp_dim = ConvolutionalOperation(1, 1)
                     temp_dim.add_self_to_parser_counts(parser)
                     pass
 
@@ -217,11 +205,10 @@ class CellDataHolder:
         results = [result, previous_result]
         return results
 
-
+'''
 class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, drop_path_tracker: DropPathTracker, cell_position_as_ratio, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None, expansion_factor: int = 1, reduce_before: bool = False):
+    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, drop_path_tracker: DropPathTracker, cell_position_as_ratio, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None, expansion_factor: int = 1):
         self.expansion_factor = expansion_factor
-        self.reduce_before = reduce_before
 
         target_dim_to_pass = target_dim
         if reduce_before:
@@ -272,7 +259,7 @@ class ReductionCellDataHolder(CellDataHolder):
 
         values = [self.reduce_current(values[0]), self.reduce_previous(values[1])]
         return values
-
+'''
 
 class ModelDataHolder:
     def __init__(self, meta_model:MetaModel, keras_model:tf.keras.models.Model = None):
@@ -282,12 +269,11 @@ class ModelDataHolder:
 
         self.expansion_factor = meta_model.hyperparameters.parameters['REDUCTION_EXPANSION_FACTOR']
         self.reduce_current = meta_model.hyperparameters.parameters['REDUCE_CURRENT']
-        self.reduction_expansion_before = meta_model.hyperparameters.parameters['REDUCTION_EXPANSION_BEFORE']
         target_dim = meta_model.hyperparameters.parameters['TARGET_FILTER_DIMS']
         previous_dim = target_dim
 
-        num_cell_layers = meta_model.hyperparameters.parameters['CELL_LAYERS']
-        num_normal_cells_per_layer = meta_model.hyperparameters.parameters['NORMAL_CELL_N']
+        self.num_cell_layers = meta_model.hyperparameters.parameters['CELL_LAYERS']
+        self.num_normal_cells_per_layer = meta_model.hyperparameters.parameters['NORMAL_CELL_N']
 
         epochs_so_far = len(meta_model.metrics.metrics['accuracy']) * meta_model.hyperparameters.parameters['TRAIN_EPOCHS']
         total_epochs = meta_model.hyperparameters.parameters['TRAIN_EPOCHS'] * meta_model.hyperparameters.parameters['TRAIN_ITERATIONS']
@@ -300,7 +286,7 @@ class ModelDataHolder:
         self.cells: List[CellDataHolder] = []
 
         current_cell_count = 0
-        total_cells_count = (num_cell_layers * num_normal_cells_per_layer) + (num_cell_layers - 1)
+        total_cells_count = (self.num_cell_layers * self.num_normal_cells_per_layer) + (self.num_cell_layers - 1)
 
         def get_cell_position_as_ratio():
             nonlocal current_cell_count
@@ -313,18 +299,16 @@ class ModelDataHolder:
             self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'valid')
             self.initial_norm = tf.keras.layers.BatchNormalization()
 
-            for layer in range(num_cell_layers):
-                for normal_cells in range(num_normal_cells_per_layer):
+            for layer in range(self.num_cell_layers):
+                for normal_cells in range(self.num_normal_cells_per_layer):
                     cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio())
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
-                if layer != num_cell_layers - 1:
-                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
-                                                   expansion_factor=self.expansion_factor,
-                                                   reduce_before=self.reduction_expansion_before)
+                if layer != self.num_cell_layers - 1:
+                    target_dim *= self.expansion_factor
+                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(), 2)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
-                    target_dim *= self.expansion_factor
 
             self.final_flatten = tf.keras.layers.Flatten()
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
@@ -337,23 +321,20 @@ class ModelDataHolder:
             self.initial_resize = keras_model.get_layer(parser.get_next_name('conv2d'))
             self.initial_norm = keras_model.get_layer(parser.get_next_name('batch_normalization'))
 
-            for layer in range(num_cell_layers):
-                for normal_cells in range(num_normal_cells_per_layer):
+            for layer in range(self.num_cell_layers):
+                for normal_cells in range(self.num_normal_cells_per_layer):
                     cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
-                                          parser,
-                                          keras_model)
+                                          parser=parser,
+                                          keras_model=keras_model)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
-                if layer != num_cell_layers - 1:
-                    cell = ReductionCellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
-                                                   parser,
-                                                   keras_model,
-                                                   expansion_factor=self.expansion_factor,
-                                                   reduce_before=self.reduction_expansion_before)
-                    self.cells.append(cell)
-                    previous_dim = cell.output_dim
+                if layer != self.num_cell_layers - 1:
                     target_dim *= self.expansion_factor
-
+                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(), 2,
+                                          parser=parser,
+                                          keras_model=keras_model)
+                    self.cells.append(cell)
+                    previous_dim = cell.output_dim
 
             self.final_flatten = tf.keras.layers.Flatten()
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
@@ -373,41 +354,61 @@ class ModelDataHolder:
             hash_list.append(f'{index}: {hash(combined)}')
         return hash_list
 
-    def operation_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_operation: int):
+    def operation_mutation(self, cell_index: int, group_index: int, operation_index: int, new_operation: int):
         actual_cell_index = 0
 
         def mutate_layer(index):
-            previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
-            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(new_operation, previous_input_shape[-1], hyperparameters.parameters['TARGET_FILTER_DIMS'])
-            self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
-            print('--finished building mutated layer (operation)')
 
-        for layer in range(hyperparameters.parameters['CELL_LAYERS']):
-            for normal_cells in range(hyperparameters.parameters['NORMAL_CELL_N']):
+            previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
+
+            cell_input_dim = self.cells[index].groups[group_index].cell_input_dim
+            cell_stride = self.cells[index].groups[group_index].cell_stride
+            target_dim = self.cells[index].groups[group_index].target_dim
+
+            actual_attachment = self.cells[index].groups[group_index].attachments[operation_index]
+            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_cell_operation(new_operation, cell_input_dim, target_dim, cell_stride, actual_attachment)
+            self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
+            print(f'--finished building mutated layer (operation) stride {cell_stride} shape {previous_input_shape}')
+
+        for layer in range(self.num_cell_layers):
+            for normal_cells in range(self.num_normal_cells_per_layer):
                 if cell_index == 0:
                     mutate_layer(actual_cell_index)
                 actual_cell_index += 1
-            if layer != hyperparameters.parameters['CELL_LAYERS'] - 1:
+            if layer != self.num_cell_layers - 1:
                 if cell_index == 1:
                     mutate_layer(actual_cell_index)
                 actual_cell_index += 1
 
-    def hidden_state_mutation(self, hyperparameters:Hyperparameters, cell_index: int, group_index: int, operation_index: int, new_hidden_state: int, operation_type: int):
+    def hidden_state_mutation(self, cell_index: int, group_index: int, operation_index: int, new_hidden_state: int, operation_type: int):
         actual_cell_index = 0
 
         def mutate_layer(index):
-            previous_input_shape = self.cells[index].groups[group_index].ops[operation_index].get_input_shape_at(0)
-            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(operation_type, previous_input_shape[-1], hyperparameters.parameters['TARGET_FILTER_DIMS'])
-            self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
-            self.cells[index].groups[group_index].attachments[operation_index] = new_hidden_state
-            print('--finished building mutated layer (state)')
+            cell_stride = self.cells[index].groups[group_index].cell_stride
+            selected_stride = cell_stride if new_hidden_state < 2 else 1
 
-        for layer in range(hyperparameters.parameters['CELL_LAYERS']):
-            for normal_cells in range(hyperparameters.parameters['NORMAL_CELL_N']):
+            cell_input_dim = self.cells[index].groups[group_index].cell_input_dim
+            target_dim = self.cells[index].groups[group_index].target_dim
+            selected_input_dim = cell_input_dim if new_hidden_state < 2 else target_dim
+
+            cell_input_shape = list(self.cells[index].groups[0].ops[0].get_input_shape_at(0))[:-1]
+            cell_output_shape = list(self.cells[index].groups[0].ops[0].get_output_shape_at(0))[:-1]
+            selected_shape = cell_input_shape if new_hidden_state < 2 else cell_output_shape
+
+            full_shape = selected_shape.copy()
+            full_shape.append(selected_input_dim)
+
+            self.cells[index].groups[group_index].ops[operation_index] = KerasOperationFactory.get_operation(operation_type, selected_input_dim, target_dim, selected_stride)
+            self.cells[index].groups[group_index].ops[operation_index].build(full_shape)
+            self.cells[index].groups[group_index].attachments[operation_index] = new_hidden_state
+            print(f'--finished building mutated layer (state) target: {target_dim}, previous input shape: {full_shape}')
+
+        for layer in range(self.num_cell_layers):
+            for normal_cells in range(self.num_normal_cells_per_layer):
                 if cell_index == 0:
                     mutate_layer(actual_cell_index)
                 actual_cell_index += 1
-            if layer != hyperparameters.parameters['CELL_LAYERS'] - 1:
+            if layer != self.num_cell_layers - 1:
                 if cell_index == 1:
                     mutate_layer(actual_cell_index)
                 actual_cell_index += 1

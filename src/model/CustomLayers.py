@@ -40,15 +40,17 @@ class KerasOperation(ABC, tf.keras.layers.Layer):
     def add_self_to_parser_counts(self, parser):
         pass
 
+    def __repr__(self):
+        return f'kop     {self.stride}'
+
 
 class SeperableConvolutionOperation(KerasOperation):
-    def __init__(self, input_dim: int, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, dilation_rate: int = 1, **kwargs):
+    def __init__(self, input_dim: int, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, **kwargs):
         super().__init__(input_dim, output_dim, stride, **kwargs)
         self.activation_layer = Relu6Layer()
-        self.convolution_layer = tf.keras.layers.SeparableConv2D(output_dim, kernel_size, self.stride, 'same', dilation_rate=dilation_rate)
+        self.convolution_layer = tf.keras.layers.SeparableConv2D(output_dim, kernel_size, self.stride, 'same')
         self.normalization_layer = None
         self.use_normalization = use_normalization
-        self.dilation_rate = dilation_rate
         self.kernel_size = kernel_size
 
         if use_normalization:
@@ -70,10 +72,7 @@ class SeperableConvolutionOperation(KerasOperation):
         config = super().get_config().copy()
         config.update({
             'kernel_size': self.kernel_size,
-            'use_normalization': self.use_normalization,
-            'dilation_rate': self.dilation_rate,
-            'output_dim': self.output_dim,
-            'stride': self.stride
+            'use_normalization': self.use_normalization
         })
         return config
 
@@ -81,6 +80,9 @@ class SeperableConvolutionOperation(KerasOperation):
         parser.get_next_name('relu6_layer')
         parser.get_next_name('seperable_conv2d')
         parser.get_next_name('batch_normalization')
+
+    def __repr__(self):
+        return f'sepcv {self.kernel_size} {self.stride}'
 
 
 class AveragePoolingOperation(KerasOperation):
@@ -91,7 +93,7 @@ class AveragePoolingOperation(KerasOperation):
         self.activation_layer = Relu6Layer()
 
         if self.input_dim != self.output_dim:
-            self.conv_redux = tf.keras.layers.Conv2D(output_dim, 1, self.stride, 'same')
+            self.conv_redux = tf.keras.layers.Conv2D(output_dim, 1, 1, 'same')
             self.norm = tf.keras.layers.BatchNormalization()
 
     def call(self, inputs, training=False, mask=None):
@@ -124,6 +126,9 @@ class AveragePoolingOperation(KerasOperation):
             parser.get_next_name('conv2d')
             parser.get_next_name('batch_normalization')
 
+    def __repr__(self):
+        return f'avpl  {self.pool_size} {self.stride}'
+
 
 class MaxPoolingOperation(KerasOperation):
     def __init__(self, input_dim: int, output_dim: int, stride: int, pool_size: int, **kwargs):
@@ -133,7 +138,7 @@ class MaxPoolingOperation(KerasOperation):
         self.activation_layer = Relu6Layer()
 
         if self.input_dim != self.output_dim:
-            self.conv_redux = tf.keras.layers.Conv2D(output_dim, 1, self.stride, 'same')
+            self.conv_redux = tf.keras.layers.Conv2D(output_dim, 1, 1, 'same')
             self.norm = tf.keras.layers.BatchNormalization()
 
     def call(self, inputs, training=False, mask=None):
@@ -166,13 +171,16 @@ class MaxPoolingOperation(KerasOperation):
             parser.get_next_name('conv2d')
             parser.get_next_name('batch_normalization')
 
+    def __repr__(self):
+        return f'mxpl  {self.pool_size} {self.stride}'
+
 
 class DoublySeperableConvoutionOperation(KerasOperation):
     def __init__(self, input_dim: int, output_dim: int, stride: int, kernel_size: int, use_normalization: bool = True, **kwargs):
         super().__init__(input_dim, output_dim, stride, **kwargs)
         self.activation_layer = Relu6Layer()
-        self.convolution_layer_1 = tf.keras.layers.SeparableConv2D(output_dim, (kernel_size, 1), self.stride, 'same')
-        self.convolution_layer_2 = tf.keras.layers.SeparableConv2D(output_dim, (1, kernel_size), self.stride, 'same')
+        self.convolution_layer_1 = tf.keras.layers.SeparableConv2D(output_dim, (kernel_size, 1), (self.stride, 1), 'same')
+        self.convolution_layer_2 = tf.keras.layers.SeparableConv2D(output_dim, (1, kernel_size), (1, self.stride), 'same')
         self.normalization_layer = None
         self.kernel_size = kernel_size
         if use_normalization:
@@ -206,8 +214,11 @@ class DoublySeperableConvoutionOperation(KerasOperation):
         parser.get_next_name('relu6_layer')
         parser.get_next_name('batch_normalization')
 
+    def __repr__(self):
+        return f'dbscv {self.kernel_size} {self.stride}'
 
-class FactorizedReductionOperation(KerasOperation):
+
+class FactorizedReductionOperation(KerasOperation): # TODO
     def __init__(self, input_dim: int, output_dim: int, stride: int = 1, **kwargs):
         super().__init__(output_dim, stride, **kwargs)
         self.path_1_avg = None
@@ -244,11 +255,12 @@ class FactorizedReductionOperation(KerasOperation):
         parser.get_next_name('batch_normalization')
 
 
-class DimensionalityChangeOperation(KerasOperation):
-    def __init__(self, input_dim: int, output_dim: int, stride: int = 1, **kwargs):
+class ConvolutionalOperation(KerasOperation):
+    def __init__(self, input_dim: int, output_dim: int, stride: int = 1, kernel_size: int = 1, **kwargs):
         super().__init__(input_dim, output_dim, stride, **kwargs)
 
-        self.reduction = tf.keras.layers.Conv2D(output_dim, 1, self.stride, 'same')
+        self.kernel_size = kernel_size
+        self.reduction = tf.keras.layers.Conv2D(output_dim, self.kernel_size, self.stride, 'same')
         self.activation = Relu6Layer()
         self.normalization_layer = tf.keras.layers.BatchNormalization()
 
@@ -268,8 +280,18 @@ class DimensionalityChangeOperation(KerasOperation):
         parser.get_next_name('relu6_layer')
         parser.get_next_name('batch_normalization')
 
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'kernel_size': self.kernel_size
+        })
+        return config
 
-class IdentityReductionOperation(DimensionalityChangeOperation):
+    def __repr__(self):
+        return f'cv    {self.kernel_size} {self.stride}'
+
+
+class IdentityReductionOperation(ConvolutionalOperation):
     pass #ALIAS
 
 
@@ -289,6 +311,9 @@ class IdentityOperation(KerasOperation):
 
     def add_self_to_parser_counts(self, parser):
         return
+
+    def __repr__(self):
+        return f'iop      '
 
 
 class DenseOperation(KerasOperation):
@@ -328,23 +353,33 @@ class DenseOperation(KerasOperation):
 
 class KerasOperationFactory:
     @staticmethod
-    def get_operation(op_type: int, input_dim: int, output_dim: int, stride: int = 1):
+    def get_cell_operation(op_type: int, cell_input_dim: int, cell_target_dim: int, stride: int, op_attachment_index: int):
+        actual_input_dim = cell_input_dim if op_attachment_index < 2 else cell_target_dim
+        actual_stride = stride if op_attachment_index < 2 else 1
+        return KerasOperationFactory.get_operation(op_type, actual_input_dim, cell_target_dim, actual_stride)
+
+    @staticmethod
+    def get_operation(op_type: int, input_dim: int, output_dim: int, stride: int):
         if op_type == OperationType.SEP_3X3:
-            return SeperableConvolutionOperation(input_dim, output_dim, stride, 3, True, 1)
+            return SeperableConvolutionOperation(input_dim, output_dim, stride, 3, True)
         elif op_type == OperationType.SEP_5X5:
-            return SeperableConvolutionOperation(input_dim, output_dim, stride, 5, True, 1)
+            return SeperableConvolutionOperation(input_dim, output_dim, stride, 5, True)
         elif op_type == OperationType.SEP_7X7:
-            return SeperableConvolutionOperation(input_dim, output_dim, stride, 7, True, 1)
+            return SeperableConvolutionOperation(input_dim, output_dim, stride, 7, True)
         elif op_type == OperationType.AVG_3X3:
             return AveragePoolingOperation(input_dim, output_dim, stride, 3)
+        elif op_type == OperationType.AVG_5X5:
+            return AveragePoolingOperation(input_dim, output_dim, stride, 5)
         elif op_type == OperationType.MAX_3X3:
             return MaxPoolingOperation(input_dim, output_dim, stride, 3)
-        elif op_type == OperationType.DIL_3X3:
-            return SeperableConvolutionOperation(input_dim, output_dim, stride, 3, dilation_rate=2)
+        elif op_type == OperationType.MAX_5X5:
+            return MaxPoolingOperation(input_dim, output_dim, stride, 5)
+        elif op_type == OperationType.CONV_3X3:
+            return ConvolutionalOperation(input_dim, output_dim, stride, 3)
         elif op_type == OperationType.SEP_1X7_7X1:
             return DoublySeperableConvoutionOperation(input_dim, output_dim, stride, 7)
         else:  # OperationType.IDENTITY and everything else
-            if input_dim == output_dim:
+            if input_dim == output_dim and stride == 1:
                 return IdentityOperation(input_dim, output_dim)
             else:
-                return IdentityReductionOperation(input_dim, output_dim)
+                return IdentityReductionOperation(input_dim, output_dim, stride)
