@@ -1,16 +1,17 @@
 from __future__ import annotations
 import matplotlib.pyplot as plt
-from model.MetaModel import *
-from Hyperparameters import Hyperparameters
+import tensorflow as tf
+import os
+import sys
 import cv2
 import math
 
-from auto_dataset.TaskGen import DatasetGenerator
-
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(HERE, '..\\'))
 
-import tensorflow as tf
-
+from model.MetaModel import *
+from auto_dataset.TaskGen import DatasetGenerator
+from Hyperparameters import Hyperparameters
 
 def test_accuracy_at_different_train_amounts():
     dir_path = os.path.join(evo_dir, 'test_accuracy_epochs')
@@ -450,6 +451,25 @@ def test_model_accuracy_from_embedding(dir_name, embedding):
     model.clear_model()
 
 
+def random_test():
+    tf.random.set_seed(0)
+
+    dataset = ImageDataset.get_cifar10()
+
+    inp = tf.keras.Input(dataset.images_shape)
+    layer = tf.keras.layers.Conv2D(8, 3)(inp)
+    layer = tf.keras.layers.Conv2D(8, 3)(layer)
+    layer = tf.keras.layers.Flatten()(layer)
+    layer = tf.keras.layers.Dense(10)(layer)
+    model = tf.keras.Model(inputs=inp, outputs=layer)
+
+    optimizer = tf.keras.optimizers.Adam(0.001)
+
+    model.compile(optimizer=optimizer, loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), metrics=['accuracy'])
+    model.fit(dataset.train_images, dataset.train_labels, shuffle=True, batch_size=16, epochs=1)
+    model.evaluate(dataset.test_images, dataset.test_labels)
+
+
 if __name__ == '__main__':
     # test_nasnet_model_accuracy('nasnet_arch_test_sgd_dropout')
 
@@ -467,6 +487,6 @@ if __name__ == '__main__':
     # analyze_model_performances('test_accuracy_epochs_h5')
     # analyze_model_performances('test_accuracy_epochs_h5_add8')
     # analyze_model_performances('test_accuracy_epochs_h5_add8_2')
-    test_model_accuracy_from_embedding('serial_3x3', MetaModel.get_m1_sep3_serial_embedding())
+    # test_model_accuracy_from_embedding('serial_3x3', MetaModel.get_m1_sep3_serial_embedding())
 
-
+    random_test()

@@ -1,7 +1,6 @@
 from SerialData import SerialData
 
 
-
 class Hyperparameters(SerialData):
     def __init__(self, debug_mode: bool = False):
         super().__init__()
@@ -16,7 +15,6 @@ class Hyperparameters(SerialData):
         for k, v in obj.items():
             if k in self.parameters:
                 self.parameters[k] = v
-
 
     def __eq__(self, other):
         if isinstance(other, Hyperparameters):

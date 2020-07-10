@@ -205,61 +205,6 @@ class CellDataHolder:
         results = [result, previous_result]
         return results
 
-'''
-class ReductionCellDataHolder(CellDataHolder):
-    def __init__(self, input_dim: int, target_dim: int, meta_cell: MetaCell, reduce_current: bool, drop_path_tracker: DropPathTracker, cell_position_as_ratio, parser:ModelParsingHelper = None, keras_model:tf.keras.models.Model = None, expansion_factor: int = 1):
-        self.expansion_factor = expansion_factor
-
-        target_dim_to_pass = target_dim
-        if reduce_before:
-            target_dim_to_pass *= self.expansion_factor
-
-        super().__init__(input_dim, target_dim_to_pass, meta_cell, reduce_current, drop_path_tracker, cell_position_as_ratio, parser, keras_model)
-
-        if keras_model is None: #TODO: factorized reduction
-            if self.expansion_factor != 1:
-                if self.reduce_before:
-                    self.dim_change_current = DimensionalityChangeOperation(self.input_dim, self.target_dim)
-                    self.dim_change_previous = DimensionalityChangeOperation(self.input_dim, self.target_dim)
-                else:
-                    expanded_dim = self.output_dim * self.expansion_factor
-                    self.dim_change_current = DimensionalityChangeOperation(self.output_dim, expanded_dim)
-                    self.dim_change_previous = DimensionalityChangeOperation(self.output_dim, expanded_dim)
-                    self.output_dim = expanded_dim
-
-            self.reduce_current = tf.keras.layers.Conv2D(self.output_dim, 3, 2, 'same')
-            self.reduce_previous = tf.keras.layers.Conv2D(self.output_dim, 3, 2, 'same')
-
-        else:
-            if self.expansion_factor != 1:
-                self.dim_change_current = keras_model.get_layer(parser.get_next_name('dimensionality_change_operation'))
-                self.dim_change_previous = keras_model.get_layer(parser.get_next_name('dimensionality_change_operation'))
-                self.dim_change_current.add_self_to_parser_counts(parser)
-                self.dim_change_previous.add_self_to_parser_counts(parser)
-
-            if not self.reduce_before:
-                expanded_dim = self.output_dim * self.expansion_factor
-                self.output_dim = expanded_dim
-
-            self.reduce_current = keras_model.get_layer(parser.get_next_name('conv2d'))
-            self.reduce_previous = keras_model.get_layer(parser.get_next_name('conv2d'))
-
-
-    def build(self, inputs):
-        # inputs are [current values, residual/previous values]
-        values = inputs
-
-        if self.reduce_before and self.expansion_factor != 1:
-            values = [self.dim_change_current(values[0]), self.dim_change_previous(values[1])]
-
-        values = super().build(values)
-
-        if not self.reduce_before and self.expansion_factor != 1:
-            values = [self.dim_change_current(values[0]), self.dim_change_previous(values[1])]
-
-        values = [self.reduce_current(values[0]), self.reduce_previous(values[1])]
-        return values
-'''
 
 class ModelDataHolder:
     def __init__(self, meta_model:MetaModel, keras_model:tf.keras.models.Model = None):
@@ -296,7 +241,7 @@ class ModelDataHolder:
             return result
 
         if keras_model is None:
-            self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'valid')
+            self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'same')
             self.initial_norm = tf.keras.layers.BatchNormalization()
 
             for layer in range(self.num_cell_layers):
