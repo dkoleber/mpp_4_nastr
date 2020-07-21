@@ -103,6 +103,8 @@ class CellDataHolder:
                  target_dim: int,
                  meta_cell: MetaCell,
                  reduce_current: bool,
+                 concatenate_all: bool,
+                 pass_residual: bool,
                  drop_path_tracker: DropPathTracker,
                  cell_position_as_ratio,
                  stride: int = 1,
@@ -112,6 +114,9 @@ class CellDataHolder:
         self.input_dim = input_dim
         self.reduce_current = reduce_current
         self.stride = stride
+
+        self.concatenate_all = concatenate_all
+        self.pass_residual = pass_residual
 
         # target dim is the dimension that we want the groups to be outputting
         # input dim is the dimension that the previous cell produced
@@ -144,7 +149,7 @@ class CellDataHolder:
         self.post_concat = None
 
         if keras_model is None:
-            if len(self.unused_group_indexes) > 1:
+            if len(self.unused_group_indexes) > 1 or self.concatenate_all:
                 self.post_concat = tf.keras.layers.Concatenate(axis=3)
 
             if not self.reduce_current and (self.stride != 1 or self.output_dim != self.input_dim): #reduce residual to current output
@@ -156,7 +161,7 @@ class CellDataHolder:
                 self.output_dim = self.target_dim
 
         else:
-            if len(self.unused_group_indexes) > 1:
+            if len(self.unused_group_indexes) > 1 or self.concatenate_all:
                 self.post_concat = keras_model.get_layer(parser.get_next_name('concatenate'))
 
             if self.stride != 1 or (not self.reduce_current and self.output_dim != self.input_dim) or (self.reduce_current and self.output_dim != self.target_dim):
@@ -176,8 +181,6 @@ class CellDataHolder:
                 if self.reduce_current:
                     self.output_dim = self.target_dim
 
-
-
     def build(self, inputs):
         available_inputs = [x for x in inputs]
         for group in self.groups:
@@ -186,20 +189,26 @@ class CellDataHolder:
 
         result = None
 
-        if len(self.unused_group_indexes) > 1:
-            concat_groups = [available_inputs[x] for x in self.unused_group_indexes]
-            result = self.post_concat(concat_groups)
+        if not self.concatenate_all:
+            if len(self.unused_group_indexes) > 1:
+                concat_groups = [available_inputs[x] for x in self.unused_group_indexes]
+                result = self.post_concat(concat_groups)
+            else:
+                result = available_inputs[-1]
         else:
-            result = available_inputs[-1]
+            result = self.post_concat(available_inputs[2:])
 
         previous_result = None
 
-        if not self.reduce_current and self.post_dim_change is not None:
-            previous_result = self.post_dim_change(inputs[0])
+        if self.pass_residual:
+            if not self.reduce_current and self.post_dim_change is not None:
+                previous_result = self.post_dim_change(inputs[0])
+            else:
+                previous_result = inputs[0]
         else:
-            previous_result = inputs[0]
+            previous_result = result
 
-        if self.reduce_current and self.post_dim_change is not None:
+        if self.pass_residual and self.reduce_current and self.post_dim_change is not None:
             result = self.post_dim_change(result)
 
         results = [result, previous_result]
@@ -212,16 +221,17 @@ class ModelDataHolder:
             print('Error: no cells in meta model. Did you forget to populate it with cells?')
             return
 
-        self.expansion_factor = meta_model.hyperparameters.parameters['REDUCTION_EXPANSION_FACTOR']
-        self.reduce_current = meta_model.hyperparameters.parameters['REDUCE_CURRENT']
-        target_dim = meta_model.hyperparameters.parameters['TARGET_FILTER_DIMS']
+        self.hyperparameters = meta_model.hyperparameters
+
+        # self.reduce_current = meta_model.hyperparameters.parameters['REDUCE_CURRENT']
+        target_dim = self.hp('TARGET_FILTER_DIMS')
         previous_dim = target_dim
 
-        self.num_cell_layers = meta_model.hyperparameters.parameters['CELL_LAYERS']
-        self.num_normal_cells_per_layer = meta_model.hyperparameters.parameters['NORMAL_CELL_N']
+        # self.num_cell_layers = meta_model.hyperparameters.parameters['CELL_LAYERS']
+        # self.num_cells = len(meta_model.hp('CELL_STACKS'))
 
-        epochs_so_far = len(meta_model.metrics.metrics['accuracy']) * meta_model.hyperparameters.parameters['TRAIN_EPOCHS']
-        total_epochs = meta_model.hyperparameters.parameters['TRAIN_EPOCHS'] * meta_model.hyperparameters.parameters['TRAIN_ITERATIONS']
+        epochs_so_far = len(meta_model.metrics.metrics['accuracy']) * self.hp('TRAIN_EPOCHS')
+        total_epochs = self.hp('TRAIN_EPOCHS') * self.hp('TRAIN_ITERATIONS')
 
         self.drop_path_tracker = DropPathTracker(meta_model.hyperparameters.parameters['DROP_PATH_CHANCE'],
                                                  epochs_so_far,
@@ -231,7 +241,8 @@ class ModelDataHolder:
         self.cells: List[CellDataHolder] = []
 
         current_cell_count = 0
-        total_cells_count = (self.num_cell_layers * self.num_normal_cells_per_layer) + (self.num_cell_layers - 1)
+        total_cells_count = ((self.hp('CELL_LAYERS') - 1) * sum(self.hp('CELL_STACKS'))) + sum(self.hp('CELL_STACKS')[:self.hp('CELL_INDEX_FOR_REDUCTION')])
+
 
         def get_cell_position_as_ratio():
             nonlocal current_cell_count
@@ -240,64 +251,71 @@ class ModelDataHolder:
             current_cell_count += 1
             return result
 
+        def get_cell(cell_type_index, parser):
+            nonlocal keras_model
+            nonlocal meta_model
+            nonlocal previous_dim
+            nonlocal target_dim
+            if keras_model is None:
+                return CellDataHolder(previous_dim,
+                                      target_dim,
+                                      meta_model.cells[cell_type_index],
+                                      self.hp('REDUCE_CURRENT'),
+                                      self.hp('CONCATENATE_ALL'),
+                                      self.hp('PASS_RESIDUAL'),
+                                      self.drop_path_tracker,
+                                      get_cell_position_as_ratio(),
+                                      meta_model.hp('CELL_STRIDES')[cell_type_index])
+            else:
+                return CellDataHolder(previous_dim,
+                                      target_dim,
+                                      meta_model.cells[cell_type_index],
+                                      self.hp('REDUCE_CURRENT'),
+                                      self.hp('CONCATENATE_ALL'),
+                                      self.hp('PASS_RESIDUAL'),
+                                      self.drop_path_tracker,
+                                      get_cell_position_as_ratio(),
+                                      meta_model.hp('CELL_STRIDES')[cell_type_index],
+                                      parser=parser,
+                                      keras_model=keras_model)
+
+        parser = ModelParsingHelper()
+
         if keras_model is None:
             self.initial_resize = tf.keras.layers.Conv2D(target_dim, 3, 1, 'same')
             self.initial_norm = tf.keras.layers.BatchNormalization()
-
-            for layer in range(self.num_cell_layers):
-                for normal_cells in range(self.num_normal_cells_per_layer):
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio())
-                    self.cells.append(cell)
-                    previous_dim = cell.output_dim
-                if layer != self.num_cell_layers - 1:
-                    target_dim *= self.expansion_factor
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(), 2)
-                    self.cells.append(cell)
-                    previous_dim = cell.output_dim
-
-            self.final_flatten = tf.keras.layers.Flatten()
-            self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
-            self.final_activation = Relu6Layer()
-            # self.final_dropout = tf.keras.layers.Dropout(meta_model.hyperparameters.parameters['DROPOUT_RATE'])
-            self.final_dense = DenseOperation(target_dim, 10, .5) #TODO: remove dropout chance?
         else:
-            parser = ModelParsingHelper()
-
             self.initial_resize = keras_model.get_layer(parser.get_next_name('conv2d'))
             self.initial_norm = keras_model.get_layer(parser.get_next_name('batch_normalization'))
 
-            for layer in range(self.num_cell_layers):
-                for normal_cells in range(self.num_normal_cells_per_layer):
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[0], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(),
-                                          parser=parser,
-                                          keras_model=keras_model)
-                    self.cells.append(cell)
-                    previous_dim = cell.output_dim
-                if layer != self.num_cell_layers - 1:
-                    target_dim *= self.expansion_factor
-                    cell = CellDataHolder(previous_dim, target_dim, meta_model.cells[1], self.reduce_current, self.drop_path_tracker, get_cell_position_as_ratio(), 2,
-                                          parser=parser,
-                                          keras_model=keras_model)
+        for layer in range(self.hp('CELL_LAYERS')):
+            is_last_layer = layer == self.hp('CELL_LAYERS') - 1
+            for cell_type_index, num_stacks in enumerate(self.hp('CELL_STACKS')):
+                is_reduction_cell = cell_type_index == self.hp('CELL_INDEX_FOR_REDUCTION')
+                if is_last_layer and is_reduction_cell:
+                    break
+
+                for cell_stack_num in range(num_stacks):
+                    if is_reduction_cell:
+                        target_dim *= self.hp('REDUCTION_EXPANSION_FACTOR')
+                    cell = get_cell(cell_type_index, parser)
                     self.cells.append(cell)
                     previous_dim = cell.output_dim
 
+
+        if keras_model is None:
+            self.final_flatten = tf.keras.layers.Flatten()
+            self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
+            self.final_activation = Relu6Layer()
+            self.final_dense = DenseOperation(target_dim, 10, .5) #TODO: remove dropout chance?
+        else:
             self.final_flatten = tf.keras.layers.Flatten()
             self.final_pool = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(input_tensor=x, axis=[1, 2]))
             self.final_activation = keras_model.get_layer(parser.get_next_name('relu6_layer'))
             self.final_dense = keras_model.get_layer(parser.get_next_name('dense_operation'))
 
-    def get_hashes(self):
-        hash_list = []
-        for index, cell in enumerate(self.cells):
-            combined = ''
-            for group in cell.groups:
-                for operation in group.ops:
-                    # print(operation.get_weights())
-                    combined += str(hash(str(operation.get_weights())))
-                for attachment in group.ops:
-                    combined += str(hash(attachment))
-            hash_list.append(f'{index}: {hash(combined)}')
-        return hash_list
+    def hp(self, name):
+        return self.hyperparameters.parameters[name]
 
     def operation_mutation(self, cell_index: int, group_index: int, operation_index: int, new_operation: int):
         actual_cell_index = 0
@@ -315,15 +333,18 @@ class ModelDataHolder:
             self.cells[index].groups[group_index].ops[operation_index].build(previous_input_shape)
             print(f'--finished building mutated layer (operation) stride {cell_stride} shape {previous_input_shape}')
 
-        for layer in range(self.num_cell_layers):
-            for normal_cells in range(self.num_normal_cells_per_layer):
-                if cell_index == 0:
-                    mutate_layer(actual_cell_index)
-                actual_cell_index += 1
-            if layer != self.num_cell_layers - 1:
-                if cell_index == 1:
-                    mutate_layer(actual_cell_index)
-                actual_cell_index += 1
+        for layer in range(self.hp('CELL_LAYERS')):
+            is_last_layer = layer == self.hp('CELL_LAYERS') - 1
+            for cell_type_index, num_stacks in enumerate(self.hp('CELL_STACKS')):
+                is_reduction_cell = cell_type_index == self.hp('CELL_INDEX_FOR_REDUCTION')
+                if is_last_layer and is_reduction_cell:
+                    break
+
+                for cell_stack_num in range(num_stacks):
+                    if cell_index == cell_type_index:
+                        mutate_layer(actual_cell_index)
+
+                    actual_cell_index += 1
 
     def hidden_state_mutation(self, cell_index: int, group_index: int, operation_index: int, new_hidden_state: int, operation_type: int):
         actual_cell_index = 0
@@ -348,15 +369,18 @@ class ModelDataHolder:
             self.cells[index].groups[group_index].attachments[operation_index] = new_hidden_state
             print(f'--finished building mutated layer (state) target: {target_dim}, previous input shape: {full_shape}')
 
-        for layer in range(self.num_cell_layers):
-            for normal_cells in range(self.num_normal_cells_per_layer):
-                if cell_index == 0:
-                    mutate_layer(actual_cell_index)
-                actual_cell_index += 1
-            if layer != self.num_cell_layers - 1:
-                if cell_index == 1:
-                    mutate_layer(actual_cell_index)
-                actual_cell_index += 1
+        for layer in range(self.hp('CELL_LAYERS')):
+            is_last_layer = layer == self.hp('CELL_LAYERS') - 1
+            for cell_type_index, num_stacks in enumerate(self.hp('CELL_STACKS')):
+                is_reduction_cell = cell_type_index == self.hp('CELL_INDEX_FOR_REDUCTION')
+                if is_last_layer and is_reduction_cell:
+                    break
+
+                for cell_stack_num in range(num_stacks):
+                    if cell_index == cell_type_index:
+                        mutate_layer(actual_cell_index)
+
+                    actual_cell_index += 1
 
     def rebuild_batchnorm(self, hyperparameters:Hyperparameters):
         print('rebuilding bn')

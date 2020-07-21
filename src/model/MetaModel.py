@@ -218,12 +218,12 @@ class MetaModel(SerialData):
         self.keras_model: tf.keras.Model = None
         self.keras_model_data: ModelDataHolder = None
 
-    def container_name(self):
-        return self.model_name + '_container'
+    def hp(self, name):
+        return self.hyperparameters.parameters[name]
 
     def populate_with_nasnet_metacells(self):
-        groups_in_block = 5
-        ops_in_group = 2
+        groups_in_block = self.hyperparameters.parameters['GROUPS_PER_CELL']
+        ops_in_group = self.hyperparameters.parameters['OPS_PER_GROUP']
         group_inputs = 2
 
         def get_cell():
@@ -334,12 +334,13 @@ class MetaModel(SerialData):
         #     item = MetaCell()
         #     item.deserialize(block)
         #     self.cells.append(item)
+        self.hyperparameters = Hyperparameters()
+        self.hyperparameters.deserialize(obj['hyperparameters'])
         self.populate_from_embedding(obj['embedding'])
         self.model_name = obj['model_name']
         self.metrics = Metrics()
         self.metrics.deserialize(obj['metrics'])
-        self.hyperparameters = Hyperparameters()
-        self.hyperparameters.deserialize(obj['hyperparameters'])
+
         if 'parent_model_name' in obj:
             self.parent_model_name = obj['parent_model_name']
         else:
@@ -505,6 +506,8 @@ class MetaModel(SerialData):
         result.deserialize(serial_data)
         if load_graph:
             result.load_model(dir_path)
+            # for i, var in enumerate(result.keras_model.trainable_variables):
+            #     print(result.keras_model.trainable_variables[i].name)
 
         return result
 
@@ -575,9 +578,9 @@ class MetaModel(SerialData):
 
     def populate_from_embedding(self, embedding):
         print(f'Populating model from embedding')
-        num_cells = 2
-        num_groups_per_cell = 5
-        num_ops_per_group = 2
+        num_cells = len(self.hyperparameters.parameters['CELL_STACKS'])
+        num_groups_per_cell = self.hyperparameters.parameters['GROUPS_PER_CELL']
+        num_ops_per_group = self.hyperparameters.parameters['OPS_PER_GROUP']
         num_cell_inputs = 2
 
         dup_embedding = embedding.copy()
