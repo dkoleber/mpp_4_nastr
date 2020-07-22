@@ -4,4 +4,6 @@ src/__pycache__/
 src/auto_dataset/__pycache__/
 src/model/__pycache__/
 models/
-evolution/
+evolution/old/
+src/evolution/
+*.h5
