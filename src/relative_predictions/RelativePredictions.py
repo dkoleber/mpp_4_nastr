@@ -571,15 +571,15 @@ def multi_config_test():
     # multi_model_test('zs_small', num_models=num_models, hparams=small_params(32), emb_queue=embeddings)
     # multi_model_test('zs_medium', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
     # multi_model_test('zs_tiny', num_models=num_models, hparams=tiny_params(32), emb_queue=embeddings)
-    multi_model_test('zs_standard_6x3_32e_32f', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
+    # multi_model_test('zs_standard_6x3_32e_32f', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
     multi_model_test('zs_medium_6x3_16e_32f', num_models=num_models, hparams=medium_params(16), emb_queue=embeddings)
     multi_model_test('zs_small_3x3_16e_24f', num_models=num_models, hparams=small_params(16), emb_queue=embeddings)
     multi_model_test('zs_long_16', num_models=num_models, hparams=long_params(), emb_queue=long_embeddings)
 
 
 if __name__ == '__main__':
-    analyze_multiple()
-    # multi_config_test()
+    # analyze_multiple()
+    multi_config_test()
 
     # analyze_stuff('zs_set_1\\zs_medium')
     # analyze_stuff('zs_small')

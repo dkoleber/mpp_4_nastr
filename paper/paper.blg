@@ -1,0 +1,73 @@
+This is BibTeX, Version 0.99d (TeX Live 2020)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: paper.aux
+The style file: plainnat.bst
+Database file #1: reference.bib
+Repeated entry---line 85 of file reference.bib
+ : @article{snas
+ :              ,
+I'm skipping whatever remains of this entry
+Warning--empty journal in learning_curve_1
+Warning--empty year in learning_curve_1
+Warning--empty year in learning_curve_1
+Warning--empty journal in multitask_1
+Warning--empty journal in enas
+Warning--empty year in enas
+Warning--empty year in enas
+Warning--empty journal in synthetic_samples
+Warning--empty journal in evolved_transformer
+Warning--empty year in evolved_transformer
+Warning--empty year in evolved_transformer
+Warning--empty journal in hardware_darts
+Warning--empty journal in snas
+Warning--empty year in snas
+Warning--empty year in snas
+Warning--empty journal in cars
+Warning--empty year in cars
+Warning--empty year in cars
+Warning--empty journal in econas
+Warning--empty journal in rl_nas
+Warning--empty year in rl_nas
+Warning--empty year in rl_nas
+You've used 19 entries,
+            2773 wiz_defined-function locations,
+            677 strings with 8397 characters,
+and the built_in function-call counts, 9980 in all, are:
+= -- 793
+> -- 903
+< -- 1
++ -- 301
+- -- 282
+* -- 927
+:= -- 1651
+add.period$ -- 70
+call.type$ -- 19
+change.case$ -- 151
+chr.to.int$ -- 19
+cite$ -- 60
+duplicate$ -- 379
+empty$ -- 589
+format.name$ -- 303
+if$ -- 1966
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 19
+newline$ -- 116
+num.names$ -- 76
+pop$ -- 332
+preamble$ -- 1
+purify$ -- 132
+quote$ -- 0
+skip$ -- 302
+stack$ -- 0
+substring$ -- 38
+swap$ -- 9
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 209
+warning$ -- 22
+while$ -- 57
+width$ -- 0
+write$ -- 251
+(There was 1 error message)
