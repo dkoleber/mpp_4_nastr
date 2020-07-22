@@ -138,6 +138,7 @@ def spearman_coef_distinct(rankings_predicted, rankings_actual):
 
     return 1. - (top/bottom)
 
+
 def spearman_coef(rankings_predicted, rankings_actual):
     n = len(rankings_predicted)
     if n < 2:
@@ -151,6 +152,7 @@ def spearman_coef(rankings_predicted, rankings_actual):
         return 1.
 
     return cov / (std_pred*std_act)
+
 
 def analyze_slices(dir_name):
     dir_path = os.path.join(evo_dir, dir_name)
@@ -414,7 +416,7 @@ def analyze_multiple():
         return accuracies
 
 
-    dir_names = ['zs_standard_6x3_32e_32f', 'zs_small_3x3_32e_24f', 'zs_medium_5x3_16e_32f', 'zs_medium_5x3_16e_24f']
+    dir_names = ['zs_standard_6x3_32e_32f', 'zs_small_3x3_32e_24f', 'zs_medium_5x3_16e_32f', 'zs_medium_5x3_16e_24f', 'zs_medium_6x3_16e_32f']
 
     accuracies = [load_accuracies(x) for x in dir_names]
 
@@ -443,9 +445,13 @@ def analyze_multiple():
         for index_set in indexes:
             np.random.shuffle(index_set)
 
+
+        rank_corrs = []
         for simulation in indexes:
             # print(f'simulating: {simulation}')
-            results.append([[],[],[],[]])
+            results.append([[],[],[],[],[]])
+            ranks = []
+            rank_distances = []
             for num_models_so_far, master_model_index in enumerate(simulation):
 
                 model_accuracies_up_to_point_final = [accs[i][-1] for i in simulation[:num_models_so_far + 1]]
@@ -467,25 +473,48 @@ def analyze_multiple():
 
                 average_rank_distance = np.mean([abs(np.where(ranks_prediction==i)[0] - np.where(ranks_actual==i)[0]) for i in range(num_models_so_far+1)]) if num_models_so_far >= 1 else 0
 
-                this_rank_distance = abs(np.where(ranks_prediction==num_models_so_far)[0] - np.where(ranks_actual==num_models_so_far)[0]) if num_models_so_far >= 1 else 0
+                this_rank_prediction = np.where(ranks_prediction==num_models_so_far)[0][0]
+                this_rank_actual = np.where(ranks_actual==num_models_so_far)[0][0]
+                this_rank_distance = abs(this_rank_prediction - this_rank_actual) if num_models_so_far >= 1 else 0
+
+                ranks.append(this_rank_prediction)
+                rank_distances.append(this_rank_distance)
+
+                num_correct_ranks = np.sum(ranks_prediction == ranks_actual) / (num_models_so_far + 1)
+
 
                 results[-1][0].append(zscore_error)
                 results[-1][1].append(average_rank_distance)
                 results[-1][2].append(this_rank_distance)
                 results[-1][3].append(spearman_distinct)
+                results[-1][4].append(num_correct_ranks)
+
+
+            rank_corr_with_distance = np.corrcoef(ranks, rank_distances)[0][1] if max(rank_distances) != min(rank_distances) else 0.
+            rank_corrs.append(rank_corr_with_distance)
+
 
         results = np.array(results)
 
         # print(results.shape)
         results = np.mean(results, axis=0)
+        corrs = np.mean(rank_corrs)
+        # print(results[1].shape)
+        # print(results[1])
+        # print(results[2])
+        # corr = np.corrcoef(results[1], results[2])[0][1]
+        # print(f'corr: {corr}')
 
-        return results
+        return results, corrs
 
     chosen_windows = [1, .5, .25, .001]
     chosen_prediction_scalars = [1, .5, .25, .125]
+    point_names = ['prediction error', 'avg rank distance', 'this rank distance', 'spearman coef distinct', 'spearman coef real', 'num correct rankings']
 
     x_models = [x for x in range(num_models)]
     rows = len(chosen_windows)
+
+    rank_corrs = []
 
     for pred in chosen_prediction_scalars:
         acceleration = 1/pred
@@ -493,24 +522,43 @@ def analyze_multiple():
         plt.figure(num=name,figsize=(16,14))
         this_prediction_scalar = []
         num_plots = 0
+        this_window_rank_corrs = []
         for window in chosen_windows:
-            val = np.array([predict_with_window(acc, window, pred) for acc in accuracies])
+            results = [predict_with_window(acc, window, pred) for acc in accuracies]
+
+            val = np.array([x[0] for x in results])
+            this_window_rank_corrs.append([x[1] for x in results])
 
             this_prediction_scalar.append(val)
 
             num_datapoints_per_sim = len(val[0])
             cols = num_datapoints_per_sim
 
-            point_names = ['prediction error', 'avg rank distance', 'this rank distance', 'spearman coef distinct', 'spearman coef real']
+
             for datapoint in range(num_datapoints_per_sim):
                 num_plots += 1
                 plt.subplot(rows, cols, num_plots)
                 datapoint_rearranged = np.swapaxes(val[:,datapoint,:], 0, 1)
                 plt.title(f'{window} window, {point_names[datapoint]}')
                 plt.plot(x_models, datapoint_rearranged)
+        rank_corrs.append(this_window_rank_corrs)
 
         # plt.show()
-        plt.savefig(f'{name}.jpg')
+        plt.savefig(os.path.join(evo_dir, f'{name}.jpg'))
+
+    rank_corrs = np.array(rank_corrs)
+    name = 'predicted rank coorelation with predicted rank distance error'
+    plt.figure(num=name, figsize=(16, 14))
+    rows = len(chosen_prediction_scalars)
+    cols = 1
+    for pred_ind, prediction_epoch in enumerate(chosen_prediction_scalars):
+        plt.subplot(rows, cols, pred_ind+1)
+        # corrs_rearranged = np.swapaxes(rank_corrs[pred_ind], 0, 1)
+        plt.title(f'{prediction_epoch} prediction scalar')
+        # plt.plot(chosen_windows, corrs_rearranged)
+        plt.plot(chosen_windows, rank_corrs[pred_ind])
+
+    plt.savefig(os.path.join(evo_dir, f'{name}.jpg'))
 
 
 def multi_config_test():
@@ -572,7 +620,7 @@ def multi_config_test():
     # multi_model_test('zs_medium', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
     # multi_model_test('zs_tiny', num_models=num_models, hparams=tiny_params(32), emb_queue=embeddings)
     # multi_model_test('zs_standard_6x3_32e_32f', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
-    multi_model_test('zs_medium_6x3_16e_32f', num_models=num_models, hparams=medium_params(16), emb_queue=embeddings)
+    # multi_model_test('zs_medium_6x3_16e_32f', num_models=num_models, hparams=medium_params(16), emb_queue=embeddings)
     multi_model_test('zs_small_3x3_16e_24f', num_models=num_models, hparams=small_params(16), emb_queue=embeddings)
     multi_model_test('zs_long_16', num_models=num_models, hparams=long_params(), emb_queue=long_embeddings)
 

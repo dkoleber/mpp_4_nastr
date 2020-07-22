@@ -7,3 +7,4 @@ models/
 evolution/old/
 src/evolution/
 *.h5
+*.pth
