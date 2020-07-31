@@ -11,6 +11,8 @@ sys.path.append(os.path.join(HERE,'..\\'))
 from Utils import list_contains_list
 from model.MetaModel import  *
 
+from nas_201_api import NASBench201API as nasapi
+
 
 def verify_mutations():
     params = Hyperparameters()
@@ -420,7 +422,20 @@ def analyze_multiple():
 
     accuracies = [load_accuracies(x) for x in dir_names]
 
-    num_experiments = len(dir_names)
+    _analyze_multiple(accuracies)
+
+def analyze_nasbench201():
+    accs = np.load(os.path.join(res_dir, 'nas_bench_201_cifar10_test_accuracies.npy'))
+    accs = np.swapaxes(accs, 0, 1)
+    accs = accs[:100,:]
+    accs = [accs.tolist()]
+
+    _analyze_multiple(accs, 8)
+
+
+def _analyze_multiple(accuracies, num_simulations = 32):
+
+    num_experiments = len(accuracies)
     num_epochs = [len(x[0]) for x in accuracies]
     num_models = len(accuracies[0])
 
@@ -439,7 +454,6 @@ def analyze_multiple():
         window = max(int(prediction_epoch * window_scalar),1)
 
         results = []
-        num_simulations = 32
         indexes = np.array([np.arange(num_models) for _ in range(num_simulations)])
         np.random.seed(0)
         for index_set in indexes:
@@ -447,13 +461,13 @@ def analyze_multiple():
 
 
         rank_corrs = []
-        for simulation in indexes:
-            # print(f'simulating: {simulation}')
+        for sim_ind, simulation in enumerate(indexes):
+            print(f'simulating: {sim_ind} of {num_simulations}')
             results.append([[],[],[],[],[]])
             ranks = []
             rank_distances = []
             for num_models_so_far, master_model_index in enumerate(simulation):
-
+                # print(f'so far: {num_models_so_far}')
                 model_accuracies_up_to_point_final = [accs[i][-1] for i in simulation[:num_models_so_far + 1]]
                 model_zscores_final = scipy.stats.zscore(model_accuracies_up_to_point_final, axis=0) if num_models_so_far >= 1 else [0]
 
@@ -509,7 +523,7 @@ def analyze_multiple():
 
     chosen_windows = [1, .5, .25, .001]
     chosen_prediction_scalars = [1, .5, .25, .125]
-    point_names = ['prediction error', 'avg rank distance', 'this rank distance', 'spearman coef distinct', 'spearman coef real', 'num correct rankings']
+    point_names = ['prediction error', 'avg rank distance', 'this rank distance', 'spearman coef distinct', 'num correct rankings']
 
     x_models = [x for x in range(num_models)]
     rows = len(chosen_windows)
@@ -625,8 +639,125 @@ def multi_config_test():
     multi_model_test('zs_long_16', num_models=num_models, hparams=long_params(), emb_queue=long_embeddings)
 
 
+def get_nasbench201_api():
+    file_name = 'NAS-Bench-201-v1_1-096897.pth'
+    file_path = os.path.join(res_dir, file_name)
+
+    if os.path.exists(file_path):
+        api = nasapi(file_path)
+        return api
+    else:
+        return None
+
+def random_exclusive(max_val, n):
+    all_vals = np.arange(max_val)
+    np.random.shuffle(all_vals)
+    return all_vals[:n]
+
+
+def run_nas_api_evo(prediction_epoch_scalar, window_scalar, time_budget):
+    api = get_nasbench201_api()
+    num_api_epochs = 200
+    num_api_archs = len(api)
+
+    actual_prediction_epoch = int(num_api_epochs * prediction_epoch_scalar)
+    actual_window = max(int(actual_prediction_epoch * window_scalar), 1)
+
+    def mutate_matrix(matrix):
+        row = int(np.random.random()*3)+1
+        col = int(np.random.random()*row)
+        op = np.random.randint(0, 5)
+        new_matrix = matrix.copy()
+        new_matrix[row,col] = op
+        return new_matrix
+
+    def matrix_to_arch(m):
+        space = ['none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
+        def st(op_ind, node_ind):
+            return f'{space[op_ind]}~{node_ind}'
+        return f'|{st(m[1][0], 0)}|+|{st(m[2][0], 0)}|{st(m[2][1], 1)}|+|{st(m[3][0], 0)}|{st(m[3][1], 1)}|{st(m[3][2], 1)}|'
+
+    def mutate_arch(arch):
+        matrix = api.str2matrix(arch)
+        new_matrix = mutate_matrix(matrix)
+        return new_matrix = matrix_to_arch(new_matrix)
+
+    def eval_arch(arch, available_time):
+        completed_eval = True
+
+        index = api.query_index_by_arch(arch)
+        info = api.query_by_index(index, 'cifar10', hp='200')[777] # available seeds are 777, 888, and 999
+        arch_accuracies = [0 for _ in range(actual_prediction_epoch)]
+        for i in range(actual_prediction_epoch):
+            results = info.get_eval('ori_test', i)
+            if results['all_time'] > available_time:
+                completed_eval = False
+                break
+            else:
+                arch_accuracies[i] = results['accuracy'] / 100.
+
+        utilized_time = info.get_eval('ori_test', actual_prediction_epoch - 1)['all_time']
+
+        return completed_eval, arch_accuracies, utilized_time
+
+    population = []
+    history = []
+
+    population_size = 100
+    frame_size = 25
+
+    total_utilized_time = 0
+
+    def availiable_time():
+        return time_budget - total_utilized_time
+
+    def eval_and_add_new_arch(arch):
+        nonlocal total_utilized_time
+        completed, accuracies, utilized_time = eval_arch(arch, availiable_time())
+        if completed:
+            total_utilized_time += utilized_time
+            history.append((arch, accuracies))
+            population.append((arch, accuracies))
+
+    # establish initial population
+    initial_population_indexes = random_exclusive(num_api_archs, population_size)
+    for i in range(population_size):
+        print(f'evaluating initial population {i}/{population_size}')
+        arch = api.query_meta_info_by_index(initial_population_indexes[i])
+        eval_and_add_new_arch(arch)
+
+
+    def calculate_best_index(accuracies) -> int:
+        zscores = scipy.stats.zscore(accuracies, axis=0)
+        windowed_zscores = [x[-actual_window:] for x in zscores]
+        mean_zscores = np.mean(windowed_zscores, axis=0)
+        return int(np.argmax(mean_zscores))
+
+    # do evolution
+    while availiable_time() > 0:
+        frame = [population[i] for i in random_exclusive(population_size, frame_size)]
+        accs = [x[1] for x in frame]
+        best_index = calculate_best_index(accs)
+
+        new_arch = mutate_arch(frame[best_index][0])
+        eval_and_add_new_arch(new_arch)
+        del population[0]
+
+
+
+    history.sort(key=lambda x: x[0])
+
+    best_arch = history[-1][0]
+    best_arch_performance = history[-1][1]
+
+
+    return best_arch, best_arch_performance
+
+
+
 if __name__ == '__main__':
     # analyze_multiple()
+    # analyze_nasbench201()
     multi_config_test()
 
     # analyze_stuff('zs_set_1\\zs_medium')
