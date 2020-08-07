@@ -418,19 +418,32 @@ def analyze_multiple():
         return accuracies
 
 
-    dir_names = ['zs_standard_6x3_32e_32f', 'zs_small_3x3_32e_24f', 'zs_medium_5x3_16e_32f', 'zs_medium_5x3_16e_24f', 'zs_medium_6x3_16e_32f']
+    dir_names = ['zs_small_3x3_16e_24f', 'zs_small_3x3_32e_24f', 'zs_medium_5x3_16e_24f', 'zs_medium_5x3_16e_32f', 'zs_medium_6x3_16e_32f', 'zs_standard_6x3_32e_32f']
 
     accuracies = [load_accuracies(x) for x in dir_names]
 
     _analyze_multiple(accuracies)
 
-def analyze_nasbench201():
-    accs = np.load(os.path.join(res_dir, 'nas_bench_201_cifar10_test_accuracies.npy'))
-    accs = np.swapaxes(accs, 0, 1)
-    accs = accs[:100,:]
-    accs = [accs.tolist()]
 
-    _analyze_multiple(accs, 8)
+def analyze_nasbench201():
+    accs = np.load(os.path.join(res_dir, 'nas_bench_201_cifar10_test_accuracies_200.npy'))
+    accs = np.swapaxes(accs, 0, 1)
+
+    print(accs.shape)
+    print(f'mean: {np.mean(accs[:, -1])}')
+
+    xvals = [x for x in range(accs.shape[0])]
+
+    plt.subplot(1, 1, 1)
+    plt.scatter(xvals, accs[:, -1])
+    plt.show()
+
+
+
+
+    # accs = accs[:100,:]
+    # accs = [accs.tolist()]
+    # _analyze_multiple(accs, 8)
 
 
 def _analyze_multiple(accuracies, num_simulations = 32):
@@ -644,10 +657,11 @@ def get_nasbench201_api():
     file_path = os.path.join(res_dir, file_name)
 
     if os.path.exists(file_path):
-        api = nasapi(file_path)
+        api = nasapi(file_path,verbose=False)
         return api
     else:
         return None
+
 
 def random_exclusive(max_val, n):
     all_vals = np.arange(max_val)
@@ -655,8 +669,7 @@ def random_exclusive(max_val, n):
     return all_vals[:n]
 
 
-def run_nas_api_evo(prediction_epoch_scalar, window_scalar, time_budget):
-    api = get_nasbench201_api()
+def run_nas_api_evo(api, prediction_epoch_scalar, window_scalar, time_budget):
     num_api_epochs = 200
     num_api_archs = len(api)
 
@@ -674,31 +687,32 @@ def run_nas_api_evo(prediction_epoch_scalar, window_scalar, time_budget):
     def matrix_to_arch(m):
         space = ['none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         def st(op_ind, node_ind):
-            return f'{space[op_ind]}~{node_ind}'
-        return f'|{st(m[1][0], 0)}|+|{st(m[2][0], 0)}|{st(m[2][1], 1)}|+|{st(m[3][0], 0)}|{st(m[3][1], 1)}|{st(m[3][2], 1)}|'
+            return f'{space[int(op_ind)]}~{node_ind}'
+        return f'|{st(m[1][0], 0)}|+|{st(m[2][0], 0)}|{st(m[2][1], 1)}|+|{st(m[3][0], 0)}|{st(m[3][1], 1)}|{st(m[3][2], 2)}|'
 
     def mutate_arch(arch):
         matrix = api.str2matrix(arch)
         new_matrix = mutate_matrix(matrix)
-        return new_matrix = matrix_to_arch(new_matrix)
+        return matrix_to_arch(new_matrix)
 
     def eval_arch(arch, available_time):
         completed_eval = True
 
         index = api.query_index_by_arch(arch)
-        info = api.query_by_index(index, 'cifar10', hp='200')[777] # available seeds are 777, 888, and 999
+        info = api.query_by_index(index, 'cifar10', hp='200')[888] # available seeds are 777, 888, and 999
         arch_accuracies = [0 for _ in range(actual_prediction_epoch)]
         for i in range(actual_prediction_epoch):
-            results = info.get_eval('ori_test', i)
+            results = info.get_eval('ori-test', i)
             if results['all_time'] > available_time:
                 completed_eval = False
                 break
             else:
                 arch_accuracies[i] = results['accuracy'] / 100.
 
-        utilized_time = info.get_eval('ori_test', actual_prediction_epoch - 1)['all_time']
+        utilized_time = info.get_eval('ori-test', actual_prediction_epoch - 1)['all_time']
 
-        return completed_eval, arch_accuracies, utilized_time
+        actual_final_accuracy = info.get_eval('ori-test')['accuracy'] / 100.
+        return completed_eval, arch_accuracies, utilized_time, actual_final_accuracy
 
     population = []
     history = []
@@ -713,52 +727,140 @@ def run_nas_api_evo(prediction_epoch_scalar, window_scalar, time_budget):
 
     def eval_and_add_new_arch(arch):
         nonlocal total_utilized_time
-        completed, accuracies, utilized_time = eval_arch(arch, availiable_time())
+        completed, accuracies, utilized_time, actual_final_accuracy = eval_arch(arch, availiable_time())
         if completed:
             total_utilized_time += utilized_time
-            history.append((arch, accuracies))
+            history.append((arch, accuracies, actual_final_accuracy))
             population.append((arch, accuracies))
+        return completed
 
     # establish initial population
     initial_population_indexes = random_exclusive(num_api_archs, population_size)
     for i in range(population_size):
-        print(f'evaluating initial population {i}/{population_size}')
-        arch = api.query_meta_info_by_index(initial_population_indexes[i])
-        eval_and_add_new_arch(arch)
-
+        # print(f'evaluating initial population {i}/{population_size}')
+        arch = api.query_meta_info_by_index(initial_population_indexes[i]).arch_str
+        if not eval_and_add_new_arch(arch):
+            print('ran out of time during initial population evaluation')
+            return 'invalid', 0., [('INVALID',[0], 0)]
 
     def calculate_best_index(accuracies) -> int:
         zscores = scipy.stats.zscore(accuracies, axis=0)
-        windowed_zscores = [x[-actual_window:] for x in zscores]
-        mean_zscores = np.mean(windowed_zscores, axis=0)
-        return int(np.argmax(mean_zscores))
+        windowed_zscores = np.array([x[-actual_window:] for x in zscores])
+        mean_zscores = np.mean(windowed_zscores, axis=1)
+        result = int(np.argmax(mean_zscores))
+        # if result > len(accuracies): #TODO: REMOVE
+        #     print(f'result: {result}, accs: {np.array(accuracies).shape}, zscores: {zscores.shape}, winzscores: {windowed_zscores.shape}, mean zscores: {len(mean_zscores)}')
+        #     print(mean_zscores)
+        return result
 
     # do evolution
     while availiable_time() > 0:
         frame = [population[i] for i in random_exclusive(population_size, frame_size)]
         accs = [x[1] for x in frame]
         best_index = calculate_best_index(accs)
-
+        # if best_index > len(frame): #TODO: REMOVE
+        #     print(f'predicted index {best_index}, max index {len(frame)}, accs size: {len(accs)}')
         new_arch = mutate_arch(frame[best_index][0])
-        eval_and_add_new_arch(new_arch)
+        # print(f'new arch: {new_arch}')
+        if not eval_and_add_new_arch(new_arch):
+            break
         del population[0]
 
+    sorted_history = sorted(history, key=lambda x: x[1][-1])
+
+    best_arch = sorted_history[-1][0]
+    # best_arch_performance = sorted_history[-1][1]
+    best_arch_final_performance = api.query_by_index(api.query_index_by_arch(best_arch), 'cifar10', '200')[888].get_eval('ori-test')['accuracy']
+
+    # print(f'completed evaluation with {len(history)} candidates. best accuracy: {best_arch_final_performance}, arch: {best_arch}')
+
+    return best_arch, best_arch_final_performance, history
 
 
-    history.sort(key=lambda x: x[0])
+def test_nasbench201(api):
 
-    best_arch = history[-1][0]
-    best_arch_performance = history[-1][1]
+    windows = [1, .5, .25, .001]
+    prediction_scalars = [.5, .25, .125] #f[.5, .25]
+    num_sims = 16
+    time_budget = 200000
+    slices = 100
 
+    all_total_durations = []
+    all_configs = []
+    graph_details = []
+    for prediction_scalar in prediction_scalars:
+        for window in windows:
+            np.random.seed(0)
+            archs = []
+            perfs = []
+            lens = []
+            durations = []
+            histories = []
+            for sim in range(num_sims):
+                duration = time.time()
+                arch, perf, history = run_nas_api_evo(api, prediction_scalar, window, time_budget)
+                l = len(history)
+                duration = time.time() - duration
+                archs.append(arch)
+                perfs.append(perf)
+                lens.append(l)
+                durations.append(duration)
+                histories.append(history)
 
-    return best_arch, best_arch_performance
+                print(f'window: {window}, scalar: {prediction_scalar}, sim: {sim}/{num_sims}, perf: {perf}, len: {l}, duration: {int(duration*1000)/1000}')
+            ind = int(np.argmax(perfs))
+            print(f'=== window: {window}, prediction scalar: {prediction_scalar} ===')
+            print(f'avg perf: {np.mean(perfs)}, avg len: {np.mean(lens)} avg duration: {np.mean(durations)}, total_duration: {sum(durations)}')
+            print(f'max perf: {perfs[ind]}, max len: {lens[ind]}, max arch: {archs[ind]}')
+            print()
+
+            best_at_slices = [0 for _ in range(slices)]
+
+            def best_in_history(history, i):
+                # print(f'history: {history}')
+                clipped_history = [x for x in history[:i+1]]
+                clipped_history.sort(key=lambda x: x[2])
+                return clipped_history[-1][2]
+
+            for history in histories:
+                best_for_this_history = [0 for _ in range(slices)]
+                for i, entry in enumerate(history):
+                    relative_positioning = int(slices * (i+1)/len(history)) - 1
+                    best_for_this_history[relative_positioning] = best_in_history(history, i)
+                best_at_slices = [best_at_slices[i] + best_for_this_history[i] for i in range(slices)]
+            best_at_slices = [x/len(histories) for x in best_at_slices]
+
+            all_configs.append((prediction_scalar, window, np.mean(perfs), best_at_slices))
+            all_total_durations.append(sum(durations))
+
+    average_duration = np.mean(all_total_durations)
+    print(f'duration per sim across all configs: {average_duration/num_sims}')
+    all_configs.sort(key=lambda x: x[2])
+    print(f'best: {all_configs[-1]}')
+
+    x_vals = [i for i in range(slices)]
+    y_vals = np.array([x[3] for x in all_configs])
+    y_vals = np.swapaxes(y_vals, 0, 1)
+
+    plt.subplot(1, 1, 1)
+
+    plt.plot(x_vals, y_vals)
+
+    plt.show()
+
 
 
 
 if __name__ == '__main__':
     # analyze_multiple()
     # analyze_nasbench201()
-    multi_config_test()
+    # multi_config_test()
+
+    analyze_nasbench201()
+
+    # api = get_nasbench201_api()
+    # test_nasbench201(api)
+
 
     # analyze_stuff('zs_set_1\\zs_medium')
     # analyze_stuff('zs_small')
