@@ -780,73 +780,101 @@ def run_nas_api_evo(api, prediction_epoch_scalar, window_scalar, time_budget):
 def test_nasbench201(api):
 
     windows = [1, .5, .25, .001]
-    prediction_scalars = [.5, .25, .125] #f[.5, .25]
+    prediction_scalars = [1, .5, .25, .125] #f[.5, .25]
     num_sims = 16
     time_budget = 200000
     slices = 100
 
-    all_total_durations = []
     all_configs = []
-    graph_details = []
     for prediction_scalar in prediction_scalars:
         for window in windows:
             np.random.seed(0)
-            archs = []
-            perfs = []
-            lens = []
-            durations = []
+            # archs = []
+            # perfs = []
+            # lens = []
+            # durations = []
             histories = []
             for sim in range(num_sims):
                 duration = time.time()
                 arch, perf, history = run_nas_api_evo(api, prediction_scalar, window, time_budget)
                 l = len(history)
                 duration = time.time() - duration
-                archs.append(arch)
-                perfs.append(perf)
-                lens.append(l)
-                durations.append(duration)
+                # archs.append(arch)
+                # perfs.append(perf)
+                # lens.append(l)
+                # durations.append(duration)
                 histories.append(history)
 
                 print(f'window: {window}, scalar: {prediction_scalar}, sim: {sim}/{num_sims}, perf: {perf}, len: {l}, duration: {int(duration*1000)/1000}')
-            ind = int(np.argmax(perfs))
-            print(f'=== window: {window}, prediction scalar: {prediction_scalar} ===')
-            print(f'avg perf: {np.mean(perfs)}, avg len: {np.mean(lens)} avg duration: {np.mean(durations)}, total_duration: {sum(durations)}')
-            print(f'max perf: {perfs[ind]}, max len: {lens[ind]}, max arch: {archs[ind]}')
+            # ind = int(np.argmax(perfs))
+            # print(f'=== window: {window}, prediction scalar: {prediction_scalar} ===')
+            # print(f'avg perf: {np.mean(perfs)}, avg len: {np.mean(lens)} avg duration: {np.mean(durations)}, total_duration: {sum(durations)}')
+            # print(f'max perf: {perfs[ind]}, max len: {lens[ind]}, max arch: {archs[ind]}')
             print()
 
-            best_at_slices = [0 for _ in range(slices)]
+            all_configs.append((prediction_scalar, window, histories))
 
-            def best_in_history(history, i):
-                # print(f'history: {history}')
-                clipped_history = [x for x in history[:i+1]]
-                clipped_history.sort(key=lambda x: x[2])
-                return clipped_history[-1][2]
+    with open(os.path.join(evo_dir, 'sim_results.json'), 'w+') as fl:
+        json.dump(all_configs, fl, indent=4)
 
-            for history in histories:
-                best_for_this_history = [0 for _ in range(slices)]
-                for i, entry in enumerate(history):
-                    relative_positioning = int(slices * (i+1)/len(history)) - 1
-                    best_for_this_history[relative_positioning] = best_in_history(history, i)
-                best_at_slices = [best_at_slices[i] + best_for_this_history[i] for i in range(slices)]
-            best_at_slices = [x/len(histories) for x in best_at_slices]
 
-            all_configs.append((prediction_scalar, window, np.mean(perfs), best_at_slices))
-            all_total_durations.append(sum(durations))
+def analyze_nasbench201_sim_results():
+    with open(os.path.join(evo_dir, 'sim_results.json'), 'r') as fl:
+        data = json.load(fl)
 
-    average_duration = np.mean(all_total_durations)
-    print(f'duration per sim across all configs: {average_duration/num_sims}')
-    all_configs.sort(key=lambda x: x[2])
-    print(f'best: {all_configs[-1]}')
+    num_slices = 100
 
-    x_vals = [i for i in range(slices)]
-    y_vals = np.array([x[3] for x in all_configs])
-    y_vals = np.swapaxes(y_vals, 0, 1)
+    def get_actual_final_accuracy_for_predicted_best(history):
+        if len(history) == 0:
+            return 0.
+        else:
+            sorted_history = sorted(history, key=lambda x: x[1][-1])
+            return sorted_history[-1][2]
 
-    plt.subplot(1, 1, 1)
+    all_best_in_slices = []
+    for configuration in data:
+        slices_for_history = [0 for _ in range(num_slices)]
+        num_histories = len(configuration[-1])
+        for history in configuration[-1]:
+            # print(history[0])
+            for sl in range(num_slices):
+                slice_as_point_in_history = int(len(history) * (sl/num_slices))
+                best_at_slice = get_actual_final_accuracy_for_predicted_best(history[:slice_as_point_in_history])
+                slices_for_history[sl] += best_at_slice
+            #find the one that it thinks is the best, and get its actual final accuracy, at each timestep in slices
 
-    plt.plot(x_vals, y_vals)
+        slices_for_history = [x / num_histories for x in slices_for_history[1:]]
+        all_best_in_slices.append(slices_for_history)
+
+    x_vals = [x for x in range(num_slices - 1)]
+
+    best_configurations = []
+    config_indexes = []
+    for sl in range(num_slices - 1):
+        at_this_slice = [x[sl] for x in all_best_in_slices]
+        best_ind = np.argmax(at_this_slice)
+        best_configurations.append((data[best_ind][0], data[best_ind][1]))
+        config_indexes.append(best_ind)
+
+    # print(best_configurations)
+
+    plt.subplot(1,1,1)
+    plt.plot(x_vals, config_indexes)
+    plt.show()
+
+
+    y_vals = np.swapaxes(np.array(all_best_in_slices), 0, 1)
+
+
+
+    for i in range(3):
+
+        plt.subplot(3, 1, i+1)
+
+        plt.plot(x_vals, y_vals[:,(i*4):((i+1)*4)])
 
     plt.show()
+
 
 
 
@@ -856,11 +884,11 @@ if __name__ == '__main__':
     # analyze_nasbench201()
     # multi_config_test()
 
-    analyze_nasbench201()
+    # analyze_nasbench201()
 
     # api = get_nasbench201_api()
     # test_nasbench201(api)
-
+    analyze_nasbench201_sim_results()
 
     # analyze_stuff('zs_set_1\\zs_medium')
     # analyze_stuff('zs_small')
