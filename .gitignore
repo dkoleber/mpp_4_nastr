@@ -8,3 +8,15 @@ evolution/old/
 src/evolution/
 *.h5
 *.pth
+evolution/*.jpg
+evolution/*.pgf
+evolution/sim_results/
+.devcontainer/
+*.npy
+*.tex
+*.pdf
+*.out
+*.log
+*.aux
+*.bbl
+*.blg

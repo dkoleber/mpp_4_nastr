@@ -689,6 +689,59 @@ class MetaModel(SerialData):
         return embedding
 
 
+def verify_mutations():
+    params = Hyperparameters()
+    params.parameters['TRAIN_ITERATIONS'] = 1
+    params.parameters['REDUCTION_EXPANSION_FACTOR'] = 2
+
+    dataset = ImageDataset.get_cifar10_reduced()
+
+    for i in range(50):
+        model = MetaModel(params)
+        model.populate_with_nasnet_metacells()
+        model.build_model(dataset.images_shape)
+
+        model.mutate()
+        model.mutate()
+        model.mutate()
+        model.clear_model()
+        tf.keras.backend.clear_session()
+
+
+def verify_load():
+    dir_path = os.path.join(evo_dir, 'test_load_v2')
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    params = Hyperparameters()
+    params.parameters['TRAIN_ITERATIONS'] = 1
+    params.parameters['REDUCTION_EXPANSION_FACTOR'] = 2
+
+    dataset = ImageDataset.get_cifar10_reduced()
+
+    for i in range(50):
+        model = MetaModel(params)
+        model.populate_with_nasnet_metacells()
+        model.build_model(dataset.images_shape)
+        model.save_model(dir_path)
+        model.save_metadata(dir_path)
+        model.clear_model()
+        tf.keras.backend.clear_session()
+
+        other_model = MetaModel.load(dir_path, model.model_name, True)
+
+        tf.keras.backend.clear_session()
+
+
+def update_hparams(dir_name):
+    dir_path = os.path.join(evo_dir, dir_name)
+    model_names = [x for x in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, x))]
+
+    meta_models = [MetaModel.load(dir_path, x, False) for x in model_names]
+
+    for x in meta_models:
+        x.save_metadata(dir_path)
+
+
 if __name__ == '__main__':
     pass
 

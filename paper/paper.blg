@@ -29,45 +29,45 @@ Warning--empty journal in econas
 Warning--empty journal in rl_nas
 Warning--empty year in rl_nas
 Warning--empty year in rl_nas
-You've used 19 entries,
+You've used 20 entries,
             2773 wiz_defined-function locations,
-            677 strings with 8397 characters,
-and the built_in function-call counts, 9980 in all, are:
-= -- 793
-> -- 903
-< -- 1
-+ -- 301
-- -- 282
-* -- 927
-:= -- 1651
-add.period$ -- 70
-call.type$ -- 19
-change.case$ -- 151
-chr.to.int$ -- 19
-cite$ -- 60
-duplicate$ -- 379
-empty$ -- 589
-format.name$ -- 303
-if$ -- 1966
+            681 strings with 8542 characters,
+and the built_in function-call counts, 10357 in all, are:
+= -- 828
+> -- 924
+< -- 2
++ -- 308
+- -- 288
+* -- 952
+:= -- 1712
+add.period$ -- 74
+call.type$ -- 20
+change.case$ -- 156
+chr.to.int$ -- 20
+cite$ -- 62
+duplicate$ -- 398
+empty$ -- 619
+format.name$ -- 312
+if$ -- 2045
 int.to.chr$ -- 1
 int.to.str$ -- 1
-missing$ -- 19
-newline$ -- 116
-num.names$ -- 76
-pop$ -- 332
+missing$ -- 20
+newline$ -- 122
+num.names$ -- 80
+pop$ -- 341
 preamble$ -- 1
-purify$ -- 132
+purify$ -- 136
 quote$ -- 0
-skip$ -- 302
+skip$ -- 318
 stack$ -- 0
-substring$ -- 38
-swap$ -- 9
+substring$ -- 40
+swap$ -- 10
 text.length$ -- 0
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 209
+type$ -- 220
 warning$ -- 22
-while$ -- 57
+while$ -- 60
 width$ -- 0
-write$ -- 251
+write$ -- 265
 (There was 1 error message)
