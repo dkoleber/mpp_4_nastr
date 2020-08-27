@@ -14,10 +14,17 @@
 \usepackage{layouts}
 \usepackage{placeins}
 \usepackage{layout}
+\usepackage{booktabs}       % For \toprule, \midrule and \bottomrule
+\usepackage{siunitx}        % Formats the units and values
+\usepackage{pgfplotstable}  % Generates table from .csv
 
 \bibliographystyle{plainnat}
 \setlength{\headsep}{5pt}
 
+\sisetup{
+    round-mode          = places, % Rounds numbers
+    round-precision     = 3, % to 3 places
+}
 
 \title{Placeholder Title}
 
@@ -122,20 +129,29 @@ the early performances have the potential to be predictive of final performances
 
 % \printinunitsof{in}\prntlen{\textwidth}
 
-\subsection{Stochastic Search Experimentation}
+\section{Experiments}
 
-\subsubsection{Experiment Details}
+\subsection{Stochastic Search Experiments}
 To measure the potential of the use of z-scores and raw ranks as a predictors of final performance, populations of models are used to
 emulate a stochastic search that is accelerated by early performance prediction. 
 While stochastic search is a far-from-optimal search algorithm, this experiment's goal is rather to provide insight into the reliability 
 using the two performance predictors to find the best candidates at different population sizes. 
 
-Two populations of trained models from two different architecutre search spaces are sampled for this purpose.
-The first population is generated using a variety of hyperparemeter combinations within a search space similar to that of NASNet \cite{nasnet}.
-Implementation details of this search space are provided in the appendix. 
-The second population is a sampled subset of the architectures in NASBench201 \cite{nasbench201}.
+\subsubsection{Experiment Details}
+Three populations of trained models from two different architecutre search spaces are sampled.
+The first two populations are sampled subsets of the architectures available in NASBench201 \cite{nasbench201}.
+Each of these populations contains four subpopulations.
+The first population, \emph{NASBench201 100p}, has subpopulations consisting of 100 models each, the size of which is chosen to mirror the working population size 
+used in aging tournament selection experiments later in this paper.
+The second population, \emph{NASBench201 16p}, has subpopulations consisting of 16 models each, the size of which is chosen to mirror the number of models in the 
+subpopulations of the third population.
+The third population, \emph{NASNet 16p}, is generated four different hyperparemeter configurations within a search space similar to that of NASNet \cite{nasnet}.
+The subpopulations for each hyperparameter configuration consists of 16 models, each trained for 16 epochs.
+The purpose of this population is to be comparable in population size to the second population, but with significantly more network parameters.
+\textbf{WHAT ARE THESE NETWORK PARAMETER COUNTS?}
+Specific implementation details of this search space are provided in the appendix.
 
-Each population $P$ is evaluated at each combination between elements of $E^s$, $W^s$, and $M$.
+Each subpopulation $P$ undergoes a grid search, evaluating each combination between elements of $E^s$, $W^s$, and $M$.
 Each such evaluation at a given combination is referred to as a \emph{simulation}.
 The set of \emph{prediction epoch scalars} $E^s$ scales $t$, the total number of epochs per model in $P$,
 to produce the actual \emph{prediction epochs} at which final model performance rank will be predicted, $E^{a}$.
@@ -144,7 +160,7 @@ The set of \emph{prediction window scalars} $W^s$ scales $E^a$ to produce the ac
 over trained epochs to be used during evaluation, $W^a$.
 The set of \emph{evaluation metric} functions $M$ includes functions for calculating an evaluation metric,
 given a model, a prediction epoch, and a prediction window. 
-These metric functions include averaged-over-window z-score measurements \emph{zm}'s, and raw rank measurements \emph{rm}'s.
+These metric functions include averaged-over-window z-score measurements \emph{ZM}'s, and raw rank measurements \emph{RM}'s.
 
 \[E^s = \{1, 0.5, 0.25, 0.125\}\]
 \[W^s = \{1, 0.5, 0.25, 0.001\}\]
@@ -158,134 +174,146 @@ These metric functions include averaged-over-window z-score measurements \emph{z
 \[r(P) = rank\ of\ every\ element\ in\ P\]
 \[r_{x}(P) = rank\ of\ x\ within\ P\]
 
-In each simulation, $P$ is shuffled then evaluated as an incremental subset of the shuffled population.
+In each simulation, $P$ is shuffled then evaluated incrementally.
 Thus, each simulation evaluates a simulated population as if it were growing to its final size, while using
 the evaluation metrics to estimate simulated population rankings at each step.
 This allows a direct comparison between the predicted rankings and actual rankings at each increment.
 Simlar to PNAS \cite{pnas}, the Spearman Coefficient is chosen to judge the reliability of early prediction of population performance ranks.
-At the addition of each subsequent model to the simulated population, average rank error, rank error for the newest model (new rank error), and the Spearman Coefficient
-for the population are measured and used as evaluation metrics. 
+At the addition of each subsequent model to the simulated population, proportaional average rank error (\emph{PARE}), proportional rank error for the newest model (\emph{PNRE}), and the Spearman Coefficient
+for the simulated population are measured and used as evaluation metrics. 
 Each simulation is run $N$ times, and evaluation metrics are averaged across simulation iterations. 
 Refer to the Figure ~\ref{fig:nasnet_1x_acceleration}, ~\ref{fig:nasnet_2x_acceleration}, ~\ref{fig:nasnet_4x_acceleration}, and ~\ref{fig:nasnet_8x_acceleration} in Appendix for simulation results.
-Additionally, the correlation between new models' predicted rank error and new models' predicted rank is measured for each simulation,
-and results are averaged across simulation iterations. These results can be found in Figure ~\ref{fig:rank_error_correlations}.
+Additionally, the correlation between new model's predicted rank and the corresponding PNRE is measured for each simulation,
+and results are averaged across simulation iterations and subpopulations. 
+Correlation results over evaluation metric tracked tightly, and these results were also invariant over different prediction window scalars, so results were averaged over
+these dimensions as well, for rank/PNRE correlations mapping directly to prediction epoch scalars (Table ~\ref{table:rank_error_corr}).
 
 \subsubsection{Analysis}
 
-\textbf{Higher acceleration rates result in higher average and new rank error, and lower Spearman coefficients.}
-New rank error and Spearman ccoefficients converge to levels that show clear trend that increases with acceleration rate.
+Unless stated otherwise, only NASBench201 100p will be analyzed, since its increased population size decreases potential variance in measured properties.
+
+\textbf{Higher acceleration rates result in higher new rank error, and lower Spearman coefficients.}
+New rank error and Spearman ccoefficients converge to levels that show clear trends that increase and decrease respectively with acceleration rate.
 This is unsurprising, as these measurements are based on model performance that are further away in terms of epochs to their
 otherwise final performance. 
-As acceleration rate increases, average rank error comes closer to stabilizing around $\frac{1}{3}$, the expected average error rate
-for a random population, but the rank predictions causing such a rank error are clearly not random since the Spearman coefficient is far from zero.
+Independent of acceleration rate, average rank error appears to converge to $\frac{1}{3}$.
+This value is signicant since it's the expected distance between two points randomly sampled from two uniformly distributed variables over $[0, 1]$.
+The predicted and actual rankings, when divided by the simulated population size, are two such uniformly distributed variables, 
+thus it would also be expected for rankings that are predicted randomly to have a PARE near $\frac{1}{3}$.
+However, the rank predictions causing such a PARE are clearly not random since the Spearman coefficient is far from zero.
 
 \textbf{New rank error stabilizes at a lower value than average rank error.}
 In all simulations, new rank error appears to stabilize at approximately half the value of the average rank error.
 Additionally, new rank error stabilizes faster than average rank error, stabilizing near a population of 4 while
 average rank error begins to stabilize around a population of 12.
-
-\textbf{Model size appears to impact performance prediction accuracy.} 
-The NASNet model population is comprised of models which all are larger than their NASBench201 counterparts.
-With NASNet simulations, Spearman coefficients remain consistenly higher and new rank error levels off at a lower value in comparison to NASBench201 simulations.
-Nonetheless, NASNet simulations show an average rank error trajectories similar to the trajectories that NASBench201 simulations play out.
-\textbf{Where do average rank error/new rank error/spearman coeff actually level out to? - take last quarter and average it?}
+\textbf{HYPOTHESIZE WHY THIS MIGHT BE, implications for evo}
 
 \textbf{Prediction based on zscores and prediction based on raw ranks produce virtually the same results.}
-This is more evident with NASBench201 since it draws out to a higher population size. 
-\textbf{CORRELATION?}
+In all prediction epoch scalar/prediction window scalar combinations, ZMs and RMs have insignifcant marginal differences,
+with no clear trends of one being more effective than the other.
+In fact, the two are definitionally the same for populations trained to a number of epochs $X$ when
 
-\textbf{New rank error has an overall weak-to-moderate positive correlation with the predicted new rank itself.}
+\[1 >= XE^{s}W^{s} = W^{a}\]
+
+\textbf{PNRE has an overall weak-to-moderate positive correlation with the predicted new rank.}
 This trend is better observed with NASBench201 simulations, due to the fact that its larger simulated population will produce an innately more accurate
 representation of such a trend. 
-\textbf{HOW DOES THIS CORRELATE WITH INCREASING ACCELERATION RATE?}
-This trend can be interpreted optimistically to suggest that, in an evolution context, degrees of exploration will be bolstered
+Across all prediction epoch scalars providing acceleration, the correlation between PNRE and predicted new rank is $0.437$,
+indicating a weak-to-moderate positive correlation. 
+This can be interpreted optimistically to suggest that, in an evolution context, the degree of exploration will be bolstered
 outside of the exploration facilitated by the evolutionary algorithm alone. 
-Pessimistically, this trend can be interpreted to suggest that suboptimal candidates might be chosen during the selection step of
+Pessimistically, this can be interpreted to suggest that suboptimal candidates might be chosen during the selection step of
 evolutionary selection algorithms, resulting in slower time to find better candidates or the possibility for better candidates
-to be spuriously removed.
+to be spuriously removed from the population.
 
+\textbf{Model size appears to impact performance prediction accuracy.} 
+As mentioned before, NASNet 16p is comprised of models which all are larger than their NASBench201 16p counterparts.
+With NASNet simulations, Spearman coefficients remain consistenly higher and new rank error levels off at a lower value in comparison to NASBench201 simulations.
+Nonetheless, NASNet simulations show an average rank error trajectories similar to the trajectories that NASBench201 simulations play out.
+\textbf{HYPOTHESIZE}
 
-\section{Aging Search Experimentation}
+\subsection{Aging Search Experimentats}
 
 Results from stochastic search experimentation are only applicable to an evolutionary algorithm context during the population's development prior to 
 selection mechanisms taking effect, since selection mechanisms generally increase the frequency of higher-performance candidates. 
-With a higher concentration of highly-performaning candidates in a population, the given evaluation metrics might perform less reliably.
+With a higher concentration of highly-performing candidates in a population, the given evaluation metrics might perform less reliably.
+To determine the reliability of the evaluation metrics in the context of an evolving population, NASBench201 is used as a search space
+over which aging tournament selection \cite{amoebanet} is used to conduct a search with a fixed time budget.
+
+\subsubsection{Experiment Details}
+
+This experiment will use the same population configuration and evolutionary algorithm used in Amoebanet \cite{amoebanet}, where the population consists of 100 candidates at all times.
+An initial population of 100 is established.
+Then, at each selection step, 25 candidates are randomly selected; the best of which produces a mutated offspring.
+After the addition of the new, mutated offspring, the oldest candidate in the population is removed to maintain a population of 100.
+
+Similar to the previous experiment, a grid search is conducted over $E^s$, $W^s$, and $M$.
+Each combination is simulated 64 times, \textbf{and the same measurements are taken at each step, in addition to the actual performance of what is predicted to be the
+best candidate within the population at each step.}
+Each simulation is given a time budget equal to $max(E^{s})ND_{\mu}$, where $N$ is the size of the NASBench201 search space, and $D$ represents the NASBench201 training durations.
+This is intended to allow the possiblity of only the fastest acceleration exploring the entire NASBench201 search space.
+
+Results for this experiment's grid search are displayed in Figures \textbf{???}. 
+Additionally, Figure \textbf{???} shows the actual performance of what is predicted to be the best candidate within the population for each grid search configuration
+in respect to elapsed time.
+
+\subsubsection{Analysis}
 
 
 
-testtest
+
+
+\textbf{average population sizes per configuration, running metric triad, actual best performances over time ** vs time}
 
 
 
+%\section{Headings: first level}
+%\label{headings}
+%
+%All headings should be lower case (except for first word and proper nouns),
+%flush left, and bold.
+%
+%First-level headings should be in 12-point type.
+%
+%\subsection{Headings: second level}
+%
+%Second-level headings should be in 10-point type.
+%
+%\subsubsection{Headings: third level}
+%
+%Third-level headings should be in 10-point type.
+%
+%\subsection{Footnotes}
+%
+%Footnotes should be used sparingly.  If you do require a footnote, indicate
+%footnotes with a number\footnote{Sample of the first footnote.} in the
+%text. Place the footnotes at the bottom of the page on which they appear.
+%Precede the footnote with a horizontal rule of 2~inches (12~picas).
+%
+%Note that footnotes are properly typeset \emph{after} punctuation
+%marks.\footnote{As in this example.}
+%
+%
+%\subsection{Tables}
+%\begin{table}
+%  \caption{Sample table title}
+%  \label{sample-table}
+%  \centering
+%  \begin{tabular}{lll}
+%    \toprule
+%    \multicolumn{2}{c}{Part}                   \\
+%    \cmidrule(r){1-2}
+%    Name     & Description     & Size ($\mu$m) \\
+%    \midrule
+%    Dendrite & Input terminal  & $\sim$100     \\
+%    Axon     & Output terminal & $\sim$10      \\
+%    Soma     & Cell body       & up to $10^6$  \\
+%    \bottomrule
+%  \end{tabular}
+%\end{table}
 
-
-
-
-\section{Headings: first level}
-\label{headings}
-
-All headings should be lower case (except for first word and proper nouns),
-flush left, and bold.
-
-First-level headings should be in 12-point type.
-
-\subsection{Headings: second level}
-
-Second-level headings should be in 10-point type.
-
-\subsubsection{Headings: third level}
-
-Third-level headings should be in 10-point type.
-
-\subsection{Footnotes}
-
-Footnotes should be used sparingly.  If you do require a footnote, indicate
-footnotes with a number\footnote{Sample of the first footnote.} in the
-text. Place the footnotes at the bottom of the page on which they appear.
-Precede the footnote with a horizontal rule of 2~inches (12~picas).
-
-Note that footnotes are properly typeset \emph{after} punctuation
-marks.\footnote{As in this example.}
-
-\subsection{Figures}
-
-\begin{figure}
-  \centering
-  \fbox{\rule[-.5cm]{0cm}{4cm} \rule[-.5cm]{4cm}{0cm}}
-  \caption{Sample figure caption.}
-\end{figure}
-
-All artwork must be neat, clean, and legible. Lines should be dark enough for
-purposes of reproduction. The figure number and caption always appear after the
-figure. Place one line space before the figure caption and one line space after
-the figure. The figure caption should be lower case (except for first word and
-proper nouns); figures are numbered consecutively.
-
-You may use color figures.  However, it is best for the figure captions and the
-paper body to be legible if the paper is printed in either black/white or in
-color.
-
-\subsection{Tables}
-
-
-
-\begin{table}
-  \caption{Sample table title}
-  \label{sample-table}
-  \centering
-  \begin{tabular}{lll}
-    \toprule
-    \multicolumn{2}{c}{Part}                   \\
-    \cmidrule(r){1-2}
-    Name     & Description     & Size ($\mu$m) \\
-    \midrule
-    Dendrite & Input terminal  & $\sim$100     \\
-    Axon     & Output terminal & $\sim$10      \\
-    Soma     & Cell body       & up to $10^6$  \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
+\FloatBarrier
+\clearpage
 \bibliography{reference}
 
 \FloatBarrier
@@ -293,18 +321,21 @@ color.
 \onecolumn
 \appendix
 \section{Appendix}
+
 \subsection{Stochastic Search Results}
 \subsubsection{NASNet Simulations}
+
 \begin{figure}[!h]
     \begin{center}
-        \input{../evolution/nasnet_1.0x_acceleration.pgf}
+        \input{../res/figures/nasnet_1x_acceleration.pgf}
     \end{center}
     \caption{NASNet Simulation with 1x Acceleration}
     \label{fig:nasnet_1x_acceleration}
 \end{figure}
+
 \begin{figure}
     \begin{center}
-        \input{../evolution/nasnet_2.0x_acceleration.pgf}
+        \input{../res/figures/nasnet_2x_acceleration.pgf}
     \end{center}
     \caption{NASNet Simulation with 2x Acceleration}
     \label{fig:nasnet_2x_acceleration}
@@ -312,7 +343,7 @@ color.
 
 \begin{figure}
     \begin{center}
-        \input{../evolution/nasnet_4.0x_acceleration.pgf}
+        \input{../res/figures/nasnet_4x_acceleration.pgf}
     \end{center}
     \caption{NASNet Simulation with 4x Acceleration}
     \label{fig:nasnet_4x_acceleration}
@@ -320,18 +351,10 @@ color.
 
 \begin{figure}
     \begin{center}
-        \input{../evolution/nasnet_8.0x_acceleration.pgf}
+        \input{../res/figures/nasnet_8x_acceleration.pgf}
     \end{center}
     \caption{NASNet Simulation with 8x Acceleration}
     \label{fig:nasnet_8x_acceleration}
-\end{figure}
-
-\begin{figure}
-    \begin{center}
-        \input{../evolution/nasnet_rank_error_correlations.pgf}
-    \end{center}
-    \caption{NASNet Rank Error Correlations with Rank}
-    \label{fig:nasnet_rank_error_correlations}
 \end{figure}
 
 \FloatBarrier
@@ -340,7 +363,7 @@ color.
 
 \begin{figure}[!h]
     \begin{center}
-        \input{../evolution/nasbench_16_1.0x_acceleration.pgf}
+        \input{../res/figures/nasbench_16_1x_acceleration.pgf}
     \end{center}
     \caption{NASBench201 Simulation with 1x Acceleration}
     \label{fig:nasbench_1x_acceleration}
@@ -348,7 +371,7 @@ color.
 
 \begin{figure}
     \begin{center}
-        \input{../evolution/nasbench_16_2.0x_acceleration.pgf}
+        \input{../res/figures/nasbench_16_2x_acceleration.pgf}
     \end{center}
     \caption{NASBench201 Simulation with 2x Acceleration}
     \label{fig:nasbench_2x_acceleration}
@@ -356,7 +379,7 @@ color.
 
 \begin{figure}
     \begin{center}
-        \input{../evolution/nasbench_16_4.0x_acceleration.pgf}
+        \input{../res/figures/nasbench_16_4x_acceleration.pgf}
     \end{center}
     \caption{NASBench201 Simulation with 4x Acceleration}
     \label{fig:nasbench_4x_acceleration}
@@ -364,22 +387,89 @@ color.
 
 \begin{figure}
     \begin{center}
-        \input{../evolution/nasbench_16_8.0x_acceleration.pgf}
+        \input{../res/figures/nasbench_16_8x_acceleration.pgf}
     \end{center}
     \caption{NASBench201 Simulation with 8x Acceleration}
     \label{fig:nasbench_8x_acceleration}
 \end{figure}
 
-\begin{figure}
+\FloatBarrier
+\clearpage
+\subsubsection{Simulation Points of Convergence}
+
+\begin{table}[!h]
     \begin{center}
-        \input{../evolution/nasbench_16_rank_error_correlations.pgf}
+        \caption{NASNet Points of Convergence}
+        \label{table:nasnet_convergence}
+        \pgfplotstabletypeset[col sep=comma]
+        {../res/figures/nasnet_convergences.csv}
     \end{center}
-    \caption{NASBench201 Rank Error Correlations with Rank}
-    \label{fig:nasbench_rank_error_correlations}
-\end{figure}
+\end{table}
+
+\begin{table}[!h]
+    \begin{center}
+        \caption{NASBench201 16p Points of Convergence}
+        \label{table:nasnet_convergence}
+        \pgfplotstabletypeset[col sep=comma]
+        {../res/figures/nasbench_16_convergences.csv}
+    \end{center}
+\end{table}
+
+\begin{table}
+    \begin{center}
+        \caption{NASBench201 100p Points of Convergence}
+        \label{table:nasnet_convergence}
+        \pgfplotstabletypeset[col sep=comma]
+        {../res/figures/nasbench_100_convergences.csv}
+    \end{center}
+\end{table}
 
 \FloatBarrier
 \clearpage
+\subsection{Rank Error vs Rank Correlations}
+
+\begin{table}[!h]
+    \begin{center}
+        \begin{tabular}{c | c | c | c | c}
+            \toprule
+            Population          & 1x    & 2x    &4x     & 8x    \\
+            \midrule
+            NASBench201 16p     & 0.194 & 0.275 & 0.342 & 0.350 \\
+            NASBench201 100p    & 0.237 & 0.423 & 0.430 & 0.459 \\
+            NASNet 16p          & 0.217 & 0.402 & 0.389 & 0.345 \\
+            \bottomrule
+        \end{tabular}
+        \caption{Rank Error Correlation with Rank, Averaged over Subpopulation, Prediction Window Scalar, and Evaluation Metric}
+        \label{table:rank_error_corr}
+    \end{center}
+\end{table}
+
+%\begin{figure}[!h]
+%    \begin{center}
+%        \input{../res/figures/nasbench_16_rank_error_correlations.pgf}
+%    \end{center}
+%    \caption{NASBench201 16p Rank Error Correlations with Rank}
+%    \label{fig:nasbench_rank_error_correlations}
+%\end{figure}
+%
+%\begin{figure}[!h]
+%    \begin{center}
+%        \input{../res/figures/nasbench_100_rank_error_correlations.pgf}
+%    \end{center}
+%    \caption{NASBench201 100p Rank Error Correlations with Rank}
+%    \label{fig:nasbench_rank_error_correlations}
+%\end{figure}
+
+%\begin{figure}
+%    \begin{center}
+%        \input{../res/figures/nasnet_rank_error_correlations.pgf}
+%    \end{center}
+%    \caption{NASNet Rank Error Correlations with Rank}
+%    \label{fig:nasnet_rank_error_correlations}
+%\end{figure}
+
+
+\FloatBarrier
 \subsection{NASNet Population Details}
 
 Using these possible ops

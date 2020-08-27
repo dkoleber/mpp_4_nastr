@@ -1,15 +1,17 @@
 import os
 import json
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = Path(os.path.dirname(os.path.abspath(__file__)))
 
-evo_dir = os.path.join(HERE, '..\\evolution\\')
-res_dir = os.path.join(HERE, '..\\res\\')
-tensorboard_dir = os.path.join(HERE, '..\\tensorboard\\')
-model_save_dir = os.path.join(HERE, '..\\models\\')
-task_dataset_dir = os.path.join(HERE, '..\\task_datasets\\')
+evo_dir = HERE / '../evolution/'
+res_dir = HERE / '../res/'
+tensorboard_dir = HERE / '../tensorboard/'
+model_save_dir = HERE / '../models/'
+task_dataset_dir = HERE / '../task_datasets/'
+fig_dir = res_dir / 'figures/'
 
-dirs = [evo_dir, res_dir, tensorboard_dir, model_save_dir, task_dataset_dir]
+dirs = [evo_dir, res_dir, tensorboard_dir, model_save_dir, task_dataset_dir, fig_dir]
 
 
 def write_json_to_file(obj: dict, dir_path: str, name: str) -> None:

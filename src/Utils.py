@@ -18,3 +18,9 @@ def list_contains_list(list_of_lists, list_to_check):
         if not mismatch:
             return True
     return False
+
+def get_multi_dim(dims):
+    if len(dims) == 1:
+        return [None for _ in range(dims[0])]
+    else:
+        return [get_multi_dim(dims[1:]) for _ in range(dims[0])]

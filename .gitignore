@@ -2,10 +2,12 @@
 tensorboard/
 src/__pycache__/
 src/auto_dataset/__pycache__/
+src/relative_predictions/__pycache__/
 src/model/__pycache__/
 models/
 evolution/old/
 src/evolution/
+res/figures/
 *.h5
 *.pth
 evolution/*.jpg

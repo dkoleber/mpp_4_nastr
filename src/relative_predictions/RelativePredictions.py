@@ -1,25 +1,36 @@
 import os
 import sys
+from pathlib import Path
 
 import scipy
 import scipy.stats
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('pgf')
-matplotlib.rcParams.update({
-    "pgf.texsystem": "pdflatex",
-    'font.family': 'serif',
-    'text.usetex': True,
-    'pgf.rcfonts': False,
-})
+import string
+from pandas import DataFrame
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(HERE,'..\\'))
+def is_linux():
+    return sys.platform == 'linux'
+
+if is_linux():
+    matplotlib.use('pgf')
+    matplotlib.rcParams.update({
+        "pgf.texsystem": "pdflatex",
+        'font.family': 'serif',
+        'text.usetex': True,
+        'pgf.rcfonts': False,
+    })
+
+from cycler import cycler
+
+HERE = Path(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(str(HERE / '../'))
 
 from Utils import list_contains_list
 from model.MetaModel import  *
 
 from nas_201_api import NASBench201API as nasapi
+
 
 
 
@@ -122,138 +133,173 @@ def multi_model_test(dir_name = 'static_analysis_samples', num_models=32, hparam
         eval_model()
 
 
+def zm_rank(accuracies, window):
+    zscores = scipy.stats.zscore(accuracies, axis=0)
+    windowed_zscores = zscores[:, -window:]
+    mean_zscores = np.mean(windowed_zscores, axis=1)
+    result = int(np.argmax(mean_zscores))
+    return result, get_ranks(mean_zscores)
+
+def rm_rank(accuracies, window):
+    ranks = get_ranks(accuracies)
+    windowed_ranks = ranks[:, -window:]
+    mean_ranks = np.mean(windowed_ranks, axis=1)
+    result = int(np.argmax(mean_ranks))
+    return result, get_ranks(mean_ranks)
+
 def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
 
     num_experiments = len(accuracies)
     num_epochs = [len(x[0]) for x in accuracies]
     num_models = len(accuracies[0])
 
-    # window_size_scalars = [1, .5, 1/3, 1/4, 1/8, 1/16]
-    # zscores = [scipy.stats.zscore(x, axis=0) for x in accuracies]
-    # def zscore_means_over_window(window_scalar):
-    #     actual_windows = [int(window_scalar * x) for x in num_epochs]
-    #     return [[[np.mean(np.array(x[max(0, i - actual_windows[exp_ind]):i + 1])) for i in range(num_epochs[exp_ind])] for x in exp] for exp_ind, exp in enumerate(zscores)]
-    # zscore_means_over_windows = [zscore_means_over_window(window) for window in window_size_scalars]
-    # zscore_means_over_window_errors = [[np.mean([[ae(epoch, zscores[exp_ind][sample_ind][-1]) for epoch in sample] for sample_ind, sample in enumerate(exp)]) for exp_ind, exp in enumerate(window)] for window in zscore_means_over_windows]
-
-    def predict_with_window(accs, window_scalar, prediction_epoch_scalar):
-        num_epochs_for_this_exp = len(accs[0])
-        prediction_epoch = int(num_epochs_for_this_exp * prediction_epoch_scalar)
-        # window = max(int(num_epochs_for_this_exp * window_scalar),1)
-        window = max(int(prediction_epoch * window_scalar),1)
-
-        results = []
-        indexes = np.array([np.arange(num_models) for _ in range(num_simulations)])
-        np.random.seed(0)
-        for index_set in indexes:
-            np.random.shuffle(index_set)
-
-
-        rank_corrs = [[],[]]
-        for sim_ind, simulation in enumerate(indexes):
-            print(f'simulating: {sim_ind} of {num_simulations}')
-            results.append([[],[],[],[],[],[]])
-            ranks = [[], []]
-            rank_distances = [[], []]
-            for num_models_so_far, master_model_index in enumerate(simulation):
-                final_accuracies = [accs[i][-1] for i in simulation[:num_models_so_far + 1]]
-
-                def get_rank_stats(ranks_predicted, ranks_actual):
-                    spearman = spearman_coef_distinct(ranks_predicted, ranks_actual)
-                    average_rank_distance = np.mean([abs(np.where(ranks_predicted == i)[0] - np.where(ranks_actual == i)[0]) for i in range(num_models_so_far + 1)]) if num_models_so_far >= 1 else 0
-                    this_rank_prediction = ranks_predicted[-1] # np.where(ranks_predicted == num_models_so_far)[0][0]
-                    this_rank_actual = ranks_actual[-1] #np.where(ranks_actual == num_models_so_far)[0][0]
-                    this_rank_distance = abs(this_rank_prediction - this_rank_actual) if num_models_so_far >= 1 else 0
-                    return spearman, average_rank_distance, this_rank_prediction, this_rank_distance
-
-                accuracies_up_to_prediction_epoch = np.array([accs[i][:prediction_epoch] for i in simulation[:num_models_so_far + 1]])
-                final_ranks_actual = get_ranks(final_accuracies)
-
-                # zm measurements
-                zscores_up_to_prediction_epoch = np.array(scipy.stats.zscore(accuracies_up_to_prediction_epoch, axis=0) if num_models_so_far >= 1 else [[0]*(prediction_epoch)])
-                zscore_predictions = np.mean(zscores_up_to_prediction_epoch[:,max(0,prediction_epoch-window):], axis=1)
-                zscore_ranks_prediction = get_ranks(zscore_predictions)
-                zscore_spearman, average_zm_rank_distance, this_zm_rank_prediction, this_zm_rank_distance = get_rank_stats(zscore_ranks_prediction, final_ranks_actual)
-                ranks[0].append(this_zm_rank_prediction)
-                rank_distances[0].append(this_zm_rank_distance)
-
-                # rm measurements
-                ranks_up_to_prediction_epoch = get_ranks(accuracies_up_to_prediction_epoch)
-                rm_rank_predictions = get_ranks(np.mean(ranks_up_to_prediction_epoch[:,max(0,prediction_epoch-window):], axis=1))
-                rm_spearman, average_rm_rank_distance, this_rm_rank_prediction, this_rm_rank_distance = get_rank_stats(rm_rank_predictions, final_ranks_actual)
-                ranks[1].append(this_rm_rank_prediction)
-                rank_distances[1].append(this_rm_rank_distance)
-
-                results[-1][0].append(average_zm_rank_distance/(num_models_so_far+1))
-                results[-1][1].append(this_zm_rank_distance/(num_models_so_far+1))
-                results[-1][2].append(zscore_spearman)
-                results[-1][3].append(average_rm_rank_distance/(num_models_so_far+1))
-                results[-1][4].append(this_rm_rank_distance/(num_models_so_far+1))
-                results[-1][5].append(rm_spearman)
-
-                # print(f'{average_zm_rank_distance} {this_rm_rank_distance} {zscore_spearman} | {ranks_up_to_prediction_epoch.shape} {rm_rank_predictions} {average_rm_rank_distance} {this_rm_rank_distance} {rm_spearman}')
-
-            for i in range(len(ranks)):
-                ranks_set = ranks[i]
-                rank_distances_set = rank_distances[i]
-                rank_corr_with_distance = np.corrcoef(ranks_set, rank_distances_set)[0][1] if max(rank_distances_set) != min(rank_distances_set) else 0.
-                rank_corrs[i].append(rank_corr_with_distance)
-
-
-        results = np.array(results)
-
-        results = np.mean(results, axis=0)
-        corrs = np.mean(rank_corrs, axis=1)
-        # print(corrs.shape)
-        # print(np.array(rank_corrs).shape)
-
-        return results, corrs
-
     chosen_windows = [1, .5, .25, .001]
     chosen_prediction_scalars = [1, .5, .25, .125]
+    num_datapoints = 3
+    num_eval_metrics = 2
 
-    all_results = []
-    for pred in chosen_prediction_scalars:
-        pred_results = []
-        for window_ind, window in enumerate(chosen_windows):
-            results = [predict_with_window(acc, window, pred) for acc in accuracies]
-            pred_results.append(results)
-        all_results.append(pred_results)
+    def gen_data():
+
+        def predict_with_window(accs, window_scalar, prediction_epoch_scalar):
+            num_epochs_for_this_exp = len(accs[0])
+            prediction_epoch = int(num_epochs_for_this_exp * prediction_epoch_scalar)
+            # window = max(int(num_epochs_for_this_exp * window_scalar),1)
+            window = max(int(prediction_epoch * window_scalar),1)
+
+            results = []
+            indexes = np.array([np.arange(num_models) for _ in range(num_simulations)])
+            np.random.seed(0)
+            for index_set in indexes:
+                np.random.shuffle(index_set)
 
 
+            rank_corrs = [[] for _ in range(num_eval_metrics)]
+            for sim_ind, simulation in enumerate(indexes):
+                print(f'simulating: {sim_ind} of {num_simulations}')
+                results.append([[] for _ in range(num_datapoints)])
+                ranks = [[] for _ in range(num_eval_metrics)]
+                rank_distances = [[] for _ in range(num_eval_metrics)]
+                for num_models_so_far, master_model_index in enumerate(simulation):
+                    final_accuracies = [accs[i][-1] for i in simulation[:num_models_so_far + 1]]
 
-    point_names = ['Average Rank Error', 'New Rank Error', 'Spearman Coef']
-    y_ticks = [(0, .5, .1), (0, .5, .1), (0., 1., .2)]
-    x_ticks = (0, num_models, int(num_models/4))
+                    def get_rank_stats(ranks_predicted, ranks_actual):
+                        spearman = spearman_coef_distinct(ranks_predicted, ranks_actual)
+                        average_rank_distance = np.mean([abs(np.where(ranks_predicted == i)[0] - np.where(ranks_actual == i)[0]) for i in range(num_models_so_far + 1)]) if num_models_so_far >= 1 else 0
+                        this_rank_prediction = ranks_predicted[-1] # np.where(ranks_predicted == num_models_so_far)[0][0]
+                        this_rank_actual = ranks_actual[-1] #np.where(ranks_actual == num_models_so_far)[0][0]
+                        this_rank_distance = abs(this_rank_prediction - this_rank_actual) if num_models_so_far >= 1 else 0
+                        return spearman, average_rank_distance, this_rank_prediction, this_rank_distance
 
-    x_models = [x for x in range(num_models)]
-    rows = len(chosen_windows)
-    rank_corrs = []
+                    accuracies_up_to_prediction_epoch = np.array([accs[i][:prediction_epoch] for i in simulation[:num_models_so_far + 1]])
+                    final_ranks_actual = get_ranks(final_accuracies)
+
+                    # zm measurements
+                    zscores_up_to_prediction_epoch = np.array(scipy.stats.zscore(accuracies_up_to_prediction_epoch, axis=0) if num_models_so_far >= 1 else [[0]*(prediction_epoch)])
+                    zscore_predictions = np.mean(zscores_up_to_prediction_epoch[:,max(0,prediction_epoch-window):], axis=1)
+                    zscore_ranks_prediction = get_ranks(zscore_predictions)
+                    zscore_spearman, average_zm_rank_distance, this_zm_rank_prediction, this_zm_rank_distance = get_rank_stats(zscore_ranks_prediction, final_ranks_actual)
+                    ranks[0].append(this_zm_rank_prediction)
+                    rank_distances[0].append(this_zm_rank_distance)
+
+                    # rm measurements
+                    ranks_up_to_prediction_epoch = get_ranks(accuracies_up_to_prediction_epoch)
+                    rm_rank_predictions = get_ranks(np.mean(ranks_up_to_prediction_epoch[:,max(0,prediction_epoch-window):], axis=1))
+                    rm_spearman, average_rm_rank_distance, this_rm_rank_prediction, this_rm_rank_distance = get_rank_stats(rm_rank_predictions, final_ranks_actual)
+                    ranks[1].append(this_rm_rank_prediction)
+                    rank_distances[1].append(this_rm_rank_distance)
+
+                    avg_zm_rank_error_norm = average_zm_rank_distance/(num_models_so_far+1)
+                    avg_rm_rank_error_norm = average_rm_rank_distance/(num_models_so_far+1)
+
+                    this_zm_rank_error_norm = this_zm_rank_distance / (num_models_so_far + 1)
+                    this_rm_rank_error_norm = this_rm_rank_distance/(num_models_so_far+1)
+
+                    results[-1][0].append((avg_zm_rank_error_norm, avg_rm_rank_error_norm))
+                    results[-1][1].append((this_zm_rank_error_norm, this_rm_rank_error_norm))
+                    results[-1][2].append((zscore_spearman, rm_spearman))
+
+                for i in range(len(ranks)):
+                    ranks_set = ranks[i]
+                    rank_distances_set = rank_distances[i]
+                    rank_corr_with_distance = np.corrcoef(ranks_set, rank_distances_set)[0][1] if max(rank_distances_set) != min(rank_distances_set) else 0.
+                    rank_corrs[i].append(rank_corr_with_distance)
+
+
+            results = np.array(results)
+
+            results = np.mean(results, axis=0)
+            corrs = np.mean(rank_corrs, axis=1)
+            # print(corrs.shape)
+            # print(np.array(rank_corrs).shape)
+            return results, corrs
+
+        # COLLECT DATA
+        metrics = []
+        rank_corrs = []
+        for pred in chosen_prediction_scalars:
+            window_m = []
+            window_r = []
+            for window in chosen_windows:
+                results = [predict_with_window(acc, window, pred) for acc in accuracies]
+                m = [x[0] for x in results]
+                print(f's: {np.array(m).shape}')
+                window_m.append(m)
+                window_r.append([x[1] for x in results])
+            metrics.append(window_m)
+            rank_corrs.append(window_r)
+
+        metrics = np.array(metrics)
+        rank_corrs = np.array(rank_corrs)
+
+        return metrics, rank_corrs
+
+    # LOAD/GENERATE DATA
+    sim_data_base = os.path.join(res_dir, f'{prefix}all_sim_data')
+    sim_paths = [f'{sim_data_base}_metrics.npy', f'{sim_data_base}_rank_corrs.npy']
+    all_exist = all([os.path.exists(x) for x in sim_paths])
+    metrics = None
+    rank_corrs = None
+    if not all_exist:
+        print(f'Generating data for {prefix}')
+        metrics, rank_corrs = gen_data()
+        np.save(sim_paths[0], metrics)
+        np.save(sim_paths[1], rank_corrs)
+    else:
+        metrics = np.load(sim_paths[0])
+        rank_corrs = np.load(sim_paths[1])
+    num_populations = metrics.shape[2]
+    # print('finished loading')
+    # print(f'metrics shape: {metrics.shape}') # dims = (prediction epochs, windows, population group, datapoint, steps, metric type)
+    # print(f'rank corrs shape: {rank_corrs.shape}') # dims = (prediction epochs, windows, population group, metric type)
+
+    def save_plt(s):
+        # print(f'saving {s}')
+        if is_linux():
+            plt.savefig(f'{s}.pgf')
+        else:
+            plt.savefig(f'{s}.jpg')
+
     actual_width = 5.5
     height = actual_width
+    point_names = ['Average Rank Error', 'New Rank Error', 'Spearman Coef']
+    metric_names = ['ZM', 'RM']
+    y_ticks = [(0, .5, .1), (0, .5, .1), (0., 1.1, .2)]
+    x_ticks = (0, num_models, int(num_models / 4))
+    x_models = [x for x in range(num_models)]
+    color_pairs = [['#1f77b4', '#ff7f0e'], ['#2ca02c', '#d62728'], ['#9467bd', '#8c564b'], ['#e377c2', '#7f7f7f']]
+
+    convergences = []
 
     for pred_ind, pred in enumerate(chosen_prediction_scalars):
-        acceleration = 1/pred
-        name = f'{prefix}{acceleration}x_acceleration'
-
-        fig = plt.figure(num=name,figsize=(actual_width,height))
-        # fig.suptitle(f'{pred} Prediction Scalar')
-        this_prediction_scalar = []
         num_plots = 0
-        this_window_rank_corrs = []
+        acceleration = int(1 / pred)
+        fig_name = f'{prefix}{acceleration}x_acceleration'
+        plt.figure(num=fig_name, figsize=(actual_width, height))
+        rows = len(chosen_windows)
+        cols = num_datapoints
         for window_ind, window in enumerate(chosen_windows):
-            results = all_results[pred_ind][window_ind] #[predict_with_window(acc, window, pred) for acc in accuracies]
-
-            val = np.array([x[0] for x in results])
-            this_window_rank_corrs.append([x[1] for x in results])
-
-            this_prediction_scalar.append(val)
-
-            num_datapoints_per_sim = len(val[0])
-            num_datapoints_per_category = int(num_datapoints_per_sim / 2)
-            cols = num_datapoints_per_category
-
-            for datapoint in range(num_datapoints_per_category):
+            datapoint_convergences = []
+            for datapoint in range(num_datapoints):
                 num_plots += 1
                 ax = plt.subplot(rows, cols, num_plots)
                 if datapoint == 0:
@@ -262,54 +308,74 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
                     ax.xaxis.set_label_position('top')
                     ax.set_xlabel(point_names[datapoint])
 
-                plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
-                plt.xlim((x_ticks[0], x_ticks[1]))
-                plt.yticks(np.arange(y_ticks[datapoint][0], y_ticks[datapoint][1], y_ticks[datapoint][2]))
-                plt.ylim((y_ticks[datapoint][0], y_ticks[datapoint][1]))
+                converge_cutoff = int(num_models/4)
+                converge = metrics[pred_ind, window_ind, :, datapoint, -converge_cutoff:, :].mean(axis=0).mean(axis=0)
+                datapoint_convergences.extend(converge)
 
-                datapoint_rearranged = np.squeeze(np.swapaxes(val[:,[datapoint, datapoint+num_datapoints_per_category],:], 0, 2))
-                total_entries = datapoint_rearranged.shape[-1]
-                datapoint_rearranged = datapoint_rearranged.reshape((num_models, -1))
-                # plt.title(f'{window} window, {point_names[datapoint]}')
-                colors = ['#1f77b4', '#ff7f0e']*total_entries
-                for i in range(datapoint_rearranged.shape[-1]):
-                    plt.plot(x_models, datapoint_rearranged[:, i], colors[i])
-        rank_corrs.append(this_window_rank_corrs)
+                for population_ind in range(num_populations):
+                    for metric_ind in range(num_eval_metrics):
+                        to_plot = metrics[pred_ind,window_ind,population_ind,datapoint,:,metric_ind]
+                        c = cycler(color = [color_pairs[0][metric_ind]])
+                        ax.set_prop_cycle(c)
 
-        # plt.show()
-        save_name = os.path.join(evo_dir, f'{name}')
+                        ax.plot(x_models, to_plot)
+                        plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
+                        plt.xlim((x_ticks[0], x_ticks[1]))
+                        plt.yticks(np.arange(y_ticks[datapoint][0], y_ticks[datapoint][1], y_ticks[datapoint][2]))
+                        plt.ylim((y_ticks[datapoint][0], y_ticks[datapoint][1]))
+            convergences.append((pred, window,)+tuple(datapoint_convergences))
+
         plt.tight_layout()
-        plt.savefig(f'{save_name}.jpg')
-        plt.savefig(f'{save_name}.pgf')
+        save_name = os.path.join(fig_dir, f'{fig_name}')
+        save_plt(save_name)
 
-    rank_corrs = np.array(rank_corrs)
+    def remove_lowercase(s):
+        table = str.maketrans('', '', string.ascii_lowercase)
+        return s.translate(table)
+
+    conv_frame = DataFrame(data=np.array(convergences))
+    col_names = ['Prediction Epoch', 'Window']
+    for datapoint_name in point_names:
+        for metric_name in metric_names:
+            col_names.append(f'{datapoint_name} {metric_name}')
+    col_names = [remove_lowercase(x) for x in col_names]
+    conv_frame.to_csv(os.path.join(fig_dir, f'{prefix}convergences.csv'), header=col_names, index=False)
+
+    x_ticks = (0, 1, .25)
+    y_ticks = (-.2, .75, .2)
+
     name = f'{prefix}rank_error_correlations'
-    plt.figure(num=name, figsize=(actual_width,height))
+    plt.figure(num=name, figsize=(actual_width, height))
     rows = len(chosen_prediction_scalars)
     cols = 1
-
-    # x_ticks = (-10, 0, 2)
-    # x_ticks = (0,5,1)
-    x_ticks = (0,1,.25)
-    y_ticks = (0, .75, .2)
-
-    for pred_ind, prediction_epoch in enumerate(chosen_prediction_scalars):
-        plt.subplot(rows, cols, pred_ind+1)
-        plt.title(f'{prediction_epoch} prediction scalar')
+    num_plots = 0
+    for pred_ind, pred in enumerate(chosen_prediction_scalars):
+        num_plots += 1
+        ax = plt.subplot(rows, cols, num_plots)
+        ax.set_xlabel(f'Window')
+        ax.set_ylabel(f'Correlation')
+        acceleration = int(1 / pred)
+        plt.title(f'{acceleration}x Acceleration')
         plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
         plt.xlim((x_ticks[0], x_ticks[1]))
         plt.yticks(np.arange(y_ticks[0], y_ticks[1], y_ticks[2]))
         plt.ylim((y_ticks[0], y_ticks[1]))
+        # for population_ind in range(num_populations):
+        for metric_ind in range(num_eval_metrics):
+            to_plot = rank_corrs[pred_ind, :, :, metric_ind].mean(axis=1)
+            c = cycler(color=[color_pairs[0][metric_ind]])
+            ax.set_prop_cycle(c)
 
-        # plt.plot(np.log2(chosen_windows), rank_corrs[pred_ind,:,0, :])
-        # plt.plot(np.arange(0,len(chosen_windows)), rank_corrs[pred_ind,:,0, :])
-        plt.plot(chosen_windows, rank_corrs[pred_ind,:,0, :])
 
-    save_name = os.path.join(evo_dir, f'{name}')
-    plt.tight_layout()
-    plt.savefig(f'{save_name}.jpg')
-    plt.savefig(f'{save_name}.pgf')
 
+            ax.plot(chosen_windows, to_plot)
+
+    plt.tight_layout(pad=.1)
+    save_name = os.path.join(fig_dir, f'{name}')
+    save_plt(save_name)
+
+    l = (' & ').join([str(np.round(x, 3)) for x in rank_corrs.mean(axis=3).mean(axis=2).mean(axis=1).tolist()])
+    print(f'avg at epochs: {l}')
 
 def analyze_nasnet_archs():
     def load_accuracies(dir_name):
@@ -332,8 +398,9 @@ def analyze_nasnet_archs():
     _analyze_multiple(accuracies, prefix='nasnet_')
 
 def analyze_nasbench_archs(sample_size=16):
-    final_accuracies_filename = 'nas_bench_201_cifar10_test_accuracies_200.npy'
+    final_accuracies_filename = res_dir / 'nas_bench_201_cifar10_test_accuracies_200.npy'
     if not os.path.exists(final_accuracies_filename):
+        print(f'missing path: {final_accuracies_filename}')
         api = get_nasbench201_api()
         generate_nasbench201_final_properties_file(api, final_accuracies_filename)
 
@@ -563,17 +630,9 @@ def run_nas_api_evo(api, prediction_epoch_scalar, window_scalar, time_budget, us
 
     def calculate_best_index(accuracies) -> int:
         if use_zscore:
-            zscores = scipy.stats.zscore(accuracies, axis=0)
-            windowed_zscores = np.array([x[-actual_window:] for x in zscores])
-            mean_zscores = np.mean(windowed_zscores, axis=1)
-            result = int(np.argmax(mean_zscores))
-            return result
+            return zm_rank(accuracies, actual_window)[0]
         else:
-            ranks = get_ranks(accuracies)
-            windowed_ranks = ranks[:, -actual_window:]
-            mean_ranks = np.mean(windowed_ranks, axis=1)
-            result = int(np.argmax(mean_ranks))
-            return result
+            return rm_rank(accuracies, actual_window)[0]
 
     # do evolution
     while available_time() > 0:
@@ -635,65 +694,293 @@ def run_nasbench201_sims(api):
 def analyze_nasbench201_sim_results():
     windows = [1, .5, .25, .001]
     prediction_scalars = [1, .5, .25, .125]
-
-    # sim_name = '64_sims_rank'
-    sim_name = '64_sims_zscore'
-
-    data = []
-    for prediction_scalar in prediction_scalars:
-        for window in windows:
-            filename = get_full_sim_output_filename(sim_name, prediction_scalar, window)
-            print(f'loading {filename}')
-            with open(filename, 'r') as fl:
-                histories = json.load(fl)
-                data.append((prediction_scalar, window, histories))
-
+    num_metrics = 2
+    num_sims = 64
+    num_measurements = 3
     num_slices = 100
+    num_epochs = 200
+    running_pop_size = 100
+    max_pop_size = 20000
 
-    def get_actual_final_accuracy_for_predicted_best(history):
-        if len(history) == 0:
-            return 0.
-        else:
-            sorted_history = sorted(history, key=lambda x: x[1][-1])
-            return sorted_history[-1][2]
+    metric_names = ['64_sims_zscore', '64_sims_rank']
 
-    all_best_in_slices = []
-    for configuration in data:
-        slices_for_history = [0 for _ in range(num_slices)]
-        num_histories = len(configuration[-1])
-        for history in configuration[-1]:
-            for sl in range(num_slices):
-                slice_as_point_in_history = int(len(history) * (sl/num_slices))
-                best_at_slice = get_actual_final_accuracy_for_predicted_best(history[:slice_as_point_in_history])
-                slices_for_history[sl] += best_at_slice
-            #find the one that it thinks is the best, and get its actual final accuracy, at each timestep in slices
+    population_sizes = None
+    all_measurements = None
+    actual_performances = None
 
-        slices_for_history = [x / num_histories for x in slices_for_history[1:]]
-        all_best_in_slices.append(slices_for_history)
+    sim_dir = evo_dir / 'sim_results'
+    measurements_path = sim_dir / 'measurements.npy'
+    population_sizes_path = sim_dir / 'population_sizes.npy'
+    performances_path = sim_dir / 'actual_performances.npy'
 
-    x_vals = [x for x in range(num_slices - 1)]
+    def gen_properties():
+        population_size = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims))
+        measurements = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, num_slices, num_measurements)) # pred, window, metric, sim, measurement, slice_ind
+        actual_performances_of_predicted_best = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, num_slices))
 
-    best_configurations = []
-    config_indexes = []
-    for sl in range(num_slices - 1):
-        print(f'processing slice {sl}')
-        at_this_slice = [x[sl] for x in all_best_in_slices]
-        best_ind = int(np.argmax(at_this_slice))
-        best_configurations.append((data[best_ind][0], data[best_ind][1]))
-        config_indexes.append(best_ind)
+        def get_actual_performance_of_predicted_best(history):
+            if len(history) == 0:
+                return 0.
+            else:
+                sorted_history = sorted(history, key=lambda x: x[1][-1])
+                return sorted_history[-1][2]
 
-    plt.subplot(1,1,1)
-    plt.plot(x_vals, config_indexes)
+        def get_measurements_in_slice(sl, metric_ind, window, num_slices):
+            rank_func = None
+            if metric_ind == 0:
+                rank_func = zm_rank
+            else:
+                rank_func = rm_rank
+
+            new_start = len(sl) - num_slices
+
+            accuracies = np.array([x[1] for x in sl])
+            cut_size = new_start - max(0, new_start - running_pop_size) # @1 = 1, @100 = 100  @101 = 100
+            accuracy_sets_at_each_point_in_slice = np.array([accuracies[new_start+x-cut_size:new_start+x+1] for x in range(num_slices)])
+
+            predicted_ranks = np.array([rank_func(x, window)[1] for x in accuracy_sets_at_each_point_in_slice])
+            actual_ranks = np.array([[x[2] for x in accuracies[new_start+x-cut_size:new_start+x+1]] for x in range(num_slices)])
+
+            pare = np.mean(np.abs(predicted_ranks - actual_ranks),axis=1)/predicted_ranks.shape[1]
+            pnre = np.abs(predicted_ranks[:,-1] - actual_ranks[:,-1])/predicted_ranks.shape[1]
+            spr = [spearman_coef_distinct(predicted_ranks[i], actual_ranks[i]) for i in range(num_slices)]
+
+            pare = np.mean(pare)
+            pnre = np.mean(pnre)
+            spr = np.mean(spr)
+
+            return [pare, pnre, spr]
+
+        def get_measurements_in_population(pop, metric_ind, window):
+            rank_func = None
+            if metric_ind == 0:
+                rank_func = zm_rank
+            else:
+                rank_func = rm_rank
+
+            accuracies = np.array([x[1] for x in pop])
+            predicted_ranks = rank_func(accuracies, window)[1]
+            actual_ranks = np.array([x[2] for x in pop])
+
+            pare = np.mean(np.abs(predicted_ranks - actual_ranks)) / predicted_ranks.shape[0]
+            pnre = np.abs(predicted_ranks[-1] - actual_ranks[-1]) / predicted_ranks.shape[0]
+            spr = spearman_coef_distinct(predicted_ranks, actual_ranks)
+
+            return (pare, pnre, spr)
+
+        for pred_ind, pred in enumerate(prediction_scalars):
+            for window_ind, window in enumerate(windows):
+                for metric_ind, metric_name in enumerate(metric_names):
+                    filename = get_full_sim_output_filename(metric_name, pred, window)
+                    print(f'loading {filename}')
+                    with open(filename, 'r') as fl:
+                        mixed_data = json.load(fl)
+                        for sim_ind, sim_history in enumerate(mixed_data): # history is [(arch_string, accuracies, actual_final_accuracy, utilized_time]
+                            population_size[pred_ind,window_ind,metric_ind,sim_ind] = len(sim_history)
+                            measurements_for_this_history = np.zeros((len(sim_history), num_measurements))
+                            for i in range(len(sim_history)):
+                                start_ind = max(0, i-running_pop_size+1)
+                                end_ind = i+1
+                                measurements_for_this_history[i] = get_measurements_in_population(sim_history[start_ind:end_ind], metric_ind, int(window*num_epochs))
+
+                            slice_inds = [int((x*len(sim_history)/num_slices)+1) for x in range(num_slices)]
+                            for index, slice_ind in enumerate(slice_inds):
+                                last_slice_ind = slice_inds[index-1] if index > 0 else 0
+                                measurements[pred_ind, window_ind, metric_ind, sim_ind, index] = measurements_for_this_history[last_slice_ind:slice_ind].mean(axis=0)
+                                actual_performances_of_predicted_best[pred_ind, window_ind, metric_ind, sim_ind, index] = get_actual_performance_of_predicted_best(sim_history[:slice_ind])
+
+                            #     last_actual_ind = max(0, last_slice_ind - running_pop_size)
+                            #     measurements[pred_ind, window_ind, metric_ind, sim_ind, index] = get_measurements_in_slice(sim_history[last_actual_ind:slice_ind], metric_ind, int(window*num_epochs), slice_ind-last_slice_ind)
+
+
+        np.save(measurements_path, measurements)
+        np.save(population_sizes_path, population_size)
+        np.save(performances_path, actual_performances_of_predicted_best)
+
+        return measurements, population_size, actual_performances_of_predicted_best
+
+    def gen_properties_alt():
+        population_size = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims))
+        measurements = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, max_pop_size, num_measurements))  # pred, window, metric, sim, measurement, slice_ind
+        actual_performances_of_predicted_best = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, max_pop_size))
+
+        def get_actual_performance_of_predicted_best(history):
+            if len(history) == 0:
+                return 0.
+            else:
+                sorted_history = sorted(history, key=lambda x: x[1][-1])
+                return sorted_history[-1][2]
+
+        def get_measurements_in_population(pop, metric_ind, window):
+            rank_func = None
+            if metric_ind == 0:
+                rank_func = zm_rank
+            else:
+                rank_func = rm_rank
+
+            accuracies = np.array([x[1] for x in pop])
+            predicted_ranks = rank_func(accuracies, window)[1]
+            actual_ranks = get_ranks(np.array([x[2] for x in pop]))
+
+            pare = np.mean(np.abs(predicted_ranks - actual_ranks)) / predicted_ranks.shape[0]
+            pnre = np.abs(predicted_ranks[-1] - actual_ranks[-1]) / predicted_ranks.shape[0]
+            spr = spearman_coef_distinct(predicted_ranks, actual_ranks)
+
+            return (pare, pnre, spr)
+
+        for pred_ind, pred in enumerate(prediction_scalars):
+            for window_ind, window in enumerate(windows):
+                for metric_ind, metric_name in enumerate(metric_names):
+                    filename = get_full_sim_output_filename(metric_name, pred, window)
+                    print(f'loading {filename}')
+                    with open(filename, 'r') as fl:
+                        mixed_data = json.load(fl)
+                        for sim_ind, sim_history in enumerate(mixed_data):  # history is [(arch_string, accuracies, actual_final_accuracy, utilized_time]
+                            this_sim_size = len(sim_history)
+                            population_size[pred_ind, window_ind, metric_ind, sim_ind] = this_sim_size
+                            for i in range(len(sim_history)):
+                                start_ind = max(0, i - running_pop_size + 1)
+                                end_ind = i + 1
+                                measurements[pred_ind, window_ind, metric_ind, sim_ind, i] = get_measurements_in_population(sim_history[start_ind:end_ind], metric_ind, max(int(window * num_epochs * pred),1))
+                                actual_performances_of_predicted_best[pred_ind, window_ind, metric_ind, sim_ind, i] = get_actual_performance_of_predicted_best(sim_history[:i+1])
+
+        np.save(measurements_path, measurements)
+        np.save(population_sizes_path, population_size)
+        np.save(performances_path, actual_performances_of_predicted_best)
+
+        return measurements, population_size, actual_performances_of_predicted_best
+
+
+    if not os.path.exists(population_sizes_path):
+        all_measurements, population_sizes, actual_performances = gen_properties_alt()
+    else:
+        all_measurements = np.load(measurements_path)
+        population_sizes = np.load(population_sizes_path)
+        actual_performances = np.load(performances_path)
+
+    print(all_measurements.shape)
+    print(population_sizes.shape)
+    print(actual_performances.shape)
+    # (4, 4, 2, 64, 20000, 3)
+    # (4, 4, 2, 64)
+    # (4, 4, 2, 64, 20000)
+
+    print(all_measurements[0, 0, 0, 0, :16, 0])
+
+    ax = plt.subplot(1, 1, 1)
+    for pred_ind, pred in enumerate(prediction_scalars):
+        for window_ind, window in enumerate(windows):
+            # actual_size = int(population_sizes[pred_ind, window_ind].mean(axis=0).mean(axis=0))
+            actual_size = int(np.min(population_sizes[pred_ind, window_ind]))
+            x_actual = [x for x in range(actual_size)]
+            to_plot = actual_performances[pred_ind, window_ind].mean(axis=0).mean(axis=0)[:actual_size]
+            ax.plot(x_actual, to_plot)
+
     plt.show()
 
-    y_vals = np.swapaxes(np.array(all_best_in_slices), 0, 1)
 
-    num_scalars = 4
-    for i in range(num_scalars):
-        plt.subplot(num_scalars, 1, i+1)
-        plt.plot(x_vals, y_vals[:,(i*4):((i+1)*4)])
 
-    plt.show()
+    actual_width = 5.5
+    height = actual_width
+    point_names = ['Average Rank Error', 'New Rank Error', 'Spearman Coef']
+    metric_names = ['ZM', 'RM']
+    y_ticks = [(0, .5, .1), (0, .5, .1), (0., 1.1, .2)]
+    x_ticks = (0, num_slices, int(num_slices / 4))
+    x_coords = np.array([x for x in range(max_pop_size)])
+    color_pairs = [['#1f77b4', '#ff7f0e'], ['#2ca02c', '#d62728'], ['#9467bd', '#8c564b'], ['#e377c2', '#7f7f7f']]
+
+    for pred_ind, pred in enumerate(prediction_scalars):
+        num_plots = 0
+        acceleration = int(1 / pred)
+        fig_name = f'evosim_{acceleration}x_acceleration'
+        plt.figure(num=fig_name, figsize=(actual_width, height))
+        rows = len(windows)
+        cols = num_measurements
+        for window_ind, window in enumerate(windows):
+            for datapoint in range(num_measurements):
+                num_plots += 1
+                ax = plt.subplot(rows, cols, num_plots)
+                if datapoint == 0:
+                    ax.set_ylabel(f'{window} window')
+                if window_ind == 0:
+                    ax.xaxis.set_label_position('top')
+                    ax.set_xlabel(point_names[datapoint])
+                for metric_ind in range(num_metrics):
+                    # min_pop_size = int(np.min(population_sizes[pred_ind, window_ind, metric_ind, :]))
+                    # to_plot = all_measurements[pred_ind, window_ind, metric_ind, :, :min_pop_size, datapoint].mean(axis=0)
+                    # actual_x_coords = x_coords[:min_pop_size]
+                    # c = cycler(color=[color_pairs[0][metric_ind]])
+                    # ax.set_prop_cycle(c)
+                    #
+                    # ax.plot(actual_x_coords, to_plot)
+                    # plt.yticks(np.arange(y_ticks[datapoint][0], y_ticks[datapoint][1], y_ticks[datapoint][2]))
+                    # plt.ylim((y_ticks[datapoint][0], y_ticks[datapoint][1]))
+                    for population_ind in range(num_sims):
+                        actual_pop_size = int(population_sizes[pred_ind, window_ind, metric_ind, population_ind])
+                        # print(f'actual pop {actual_pop_size}')
+                        actual_x_coords = x_coords[:actual_pop_size]
+                        to_plot = all_measurements[pred_ind, window_ind, metric_ind, population_ind, :actual_pop_size, datapoint]
+                        c = cycler(color=[color_pairs[0][metric_ind]])
+                        ax.set_prop_cycle(c)
+
+                        ax.plot(actual_x_coords, to_plot)
+                    # print(f'{datapoint} {to_plot[:16]}')
+                    # plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
+                    # plt.xlim((x_ticks[0], x_ticks[1]))
+
+
+        plt.tight_layout()
+        plt.show()
+        # save_name = os.path.join(fig_dir, f'{fig_name}')
+        # save_plt(save_name)
+
+
+
+    #
+    # def get_actual_final_accuracy_for_predicted_best(history):
+    #     if len(history) == 0:
+    #         return 0.
+    #     else:
+    #         sorted_history = sorted(history, key=lambda x: x[1][-1])
+    #         return sorted_history[-1][2]
+    #
+    # all_best_in_slices = []
+    # for configuration in data:
+    #     slices_for_history = [0 for _ in range(num_slices)]
+    #     num_histories = len(configuration[-1])
+    #     for history in configuration[-1]:
+    #         for sl in range(num_slices):
+    #             slice_as_point_in_history = int(len(history) * (sl/num_slices))
+    #             best_at_slice = get_actual_final_accuracy_for_predicted_best(history[:slice_as_point_in_history])
+    #             slices_for_history[sl] += best_at_slice
+    #         #find the one that it thinks is the best, and get its actual final accuracy, at each timestep in slices
+    #
+    #     slices_for_history = [x / num_histories for x in slices_for_history[1:]]
+    #     all_best_in_slices.append(slices_for_history)
+    #
+    # x_vals = [x for x in range(num_slices - 1)]
+    #
+    # best_configurations = []
+    # config_indexes = []
+    # for sl in range(num_slices - 1):
+    #     print(f'processing slice {sl}')
+    #     at_this_slice = [x[sl] for x in all_best_in_slices]
+    #     best_ind = int(np.argmax(at_this_slice))
+    #     best_configurations.append((data[best_ind][0], data[best_ind][1]))
+    #     config_indexes.append(best_ind)
+    #
+    # plt.subplot(1,1,1)
+    # plt.plot(x_vals, config_indexes)
+    # plt.show()
+    #
+    # y_vals = np.swapaxes(np.array(all_best_in_slices), 0, 1)
+    #
+    # num_scalars = 4
+    # for i in range(num_scalars):
+    #     plt.subplot(num_scalars, 1, i+1)
+    #     plt.plot(x_vals, y_vals[:,(i*4):((i+1)*4)])
+    #
+    # plt.show()
 
 def test_spearman():
     spcf = []
@@ -719,12 +1006,12 @@ if __name__ == '__main__':
 
     # api = get_nasbench201_api()
     # run_nasbench201_sims(api)
-    # analyze_nasbench201_sim_results()
+    analyze_nasbench201_sim_results()
 
-    # test_spearman()
-    analyze_nasbench_archs(16)
+
+    # analyze_nasbench_archs(16)
     # analyze_nasbench_archs(100)
-    analyze_nasnet_archs()
+    # analyze_nasnet_archs()
 
 
     # analyze_stuff('zs_set_1\\zs_medium')

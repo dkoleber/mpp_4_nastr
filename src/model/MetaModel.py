@@ -577,7 +577,7 @@ class MetaModel(SerialData):
         return embedding
 
     def populate_from_embedding(self, embedding):
-        print(f'Populating model from embedding')
+        # print(f'Populating model from embedding')
         num_cells = len(self.hyperparameters.parameters['CELL_STACKS'])
         num_groups_per_cell = self.hyperparameters.parameters['GROUPS_PER_CELL']
         num_ops_per_group = self.hyperparameters.parameters['OPS_PER_GROUP']
