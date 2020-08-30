@@ -1,4 +1,4 @@
-pdflatex paper
+pdflatex --extra-mem-bot=10000000 -shell-escape paper
 bibtex paper
-pdflatex paper
-pdflatex paper
+pdflatex --extra-mem-bot=10000000 -shell-escape paper
+pdflatex --extra-mem-bot=10000000 -shell-escape paper

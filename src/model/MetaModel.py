@@ -536,6 +536,7 @@ class MetaModel(SerialData):
         graph.render(os.path.join(dir_path, self.model_name, 'graph.png'))
 
     def get_flops(self, dataset:ImageDataset):
+        '''THIS IS BROKEN RIGHT NOW, DO NOT USE'''
         if self.keras_model is None:
             return 0
 
@@ -543,26 +544,30 @@ class MetaModel(SerialData):
         session = tf.compat.v1.keras.backend.get_session()
 
         with session.as_default():
-            input_img = tf.ones((1,) + dataset.images_shape, dtype=tf.float32)
-            output_image = self.keras_model(input_img)
+            with self.keras_model._graph.as_default():
+                input_img = tf.ones((1,) + dataset.images_shape, dtype=tf.float32)
+                output_image = self.keras_model(input_img)
 
-            run_meta = tf.compat.v1.RunMetadata()
+                run_meta = tf.compat.v1.RunMetadata()
 
-            _ = session.run(output_image,
-                            options=tf.compat.v1.RunOptions(trace_level=tf.compat.v1.RunOptions.FULL_TRACE),
-                            run_metadata=run_meta,
-                            # feed_dict={input_img:np.reshape(dataset.test_images[0], (1,)+dataset.images_shape)}
-                            )
+                _ = session.run(output_image,
+                                options=tf.compat.v1.RunOptions(trace_level=tf.compat.v1.RunOptions.FULL_TRACE),
+                                run_metadata=run_meta,
+                                # feed_dict={input_img:np.reshape(dataset.test_images[0], (1,)+dataset.images_shape)}
+                                )
 
-            opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
-            # opts['output'] = 'none'
-            flops = tf.compat.v1.profiler.profile(run_meta=run_meta, cmd='op', options=opts)
+                opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
+                flops = tf.compat.v1.profiler.profile(run_meta=run_meta, cmd='op', options=opts)
 
-            return flops.total_float_ops
-
+                return flops.total_float_ops
+        #
+        # session = tf.compat.v1.keras.backend.get_session()
+        #
+        # # session = tf.compat.v1.Session()
+        #
         # run_meta = tf.compat.v1.RunMetadata()
         # opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
-        # flops = tf.compat.v1.profiler.profile(tf.compat.v1.keras.backend.get_session().graph, run_meta=run_meta, cmd='op', options=opts)
+        # flops = tf.compat.v1.profiler.profile(self.keras_model._graph, run_meta=run_meta, cmd='op', options=opts)
         # return flops.total_float_ops
 
     def get_embedding(self):

@@ -3,25 +3,22 @@ Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
 The top-level auxiliary file: paper.aux
 The style file: plainnat.bst
 Database file #1: reference.bib
-Repeated entry---line 85 of file reference.bib
- : @article{snas
- :              ,
-I'm skipping whatever remains of this entry
-Warning--empty journal in learning_curve_1
-Warning--empty year in learning_curve_1
-Warning--empty year in learning_curve_1
-Warning--empty journal in multitask_1
+Warning--empty journal in vsvr_pred
+Warning--empty year in vsvr_pred
+Warning--empty year in vsvr_pred
+Warning--empty journal in hparam_opt_1
+Warning--empty year in hparam_opt_1
+Warning--empty year in hparam_opt_1
+Warning--empty journal in bayesian_pred
+Warning--empty year in bayesian_pred
+Warning--empty year in bayesian_pred
 Warning--empty journal in enas
 Warning--empty year in enas
 Warning--empty year in enas
-Warning--empty journal in synthetic_samples
 Warning--empty journal in evolved_transformer
 Warning--empty year in evolved_transformer
 Warning--empty year in evolved_transformer
 Warning--empty journal in hardware_darts
-Warning--empty journal in snas
-Warning--empty year in snas
-Warning--empty year in snas
 Warning--empty journal in cars
 Warning--empty year in cars
 Warning--empty year in cars
@@ -29,45 +26,45 @@ Warning--empty journal in econas
 Warning--empty journal in rl_nas
 Warning--empty year in rl_nas
 Warning--empty year in rl_nas
-You've used 20 entries,
+You've used 17 entries,
             2773 wiz_defined-function locations,
-            681 strings with 8542 characters,
-and the built_in function-call counts, 10357 in all, are:
-= -- 828
-> -- 924
+            668 strings with 7983 characters,
+and the built_in function-call counts, 8762 in all, are:
+= -- 695
+> -- 780
 < -- 2
-+ -- 308
-- -- 288
-* -- 952
-:= -- 1712
-add.period$ -- 74
-call.type$ -- 20
-change.case$ -- 156
-chr.to.int$ -- 20
-cite$ -- 62
-duplicate$ -- 398
-empty$ -- 619
-format.name$ -- 312
-if$ -- 2045
++ -- 260
+- -- 243
+* -- 810
+:= -- 1444
+add.period$ -- 60
+call.type$ -- 17
+change.case$ -- 132
+chr.to.int$ -- 17
+cite$ -- 57
+duplicate$ -- 338
+empty$ -- 526
+format.name$ -- 264
+if$ -- 1726
 int.to.chr$ -- 1
 int.to.str$ -- 1
-missing$ -- 20
-newline$ -- 122
-num.names$ -- 80
-pop$ -- 341
+missing$ -- 17
+newline$ -- 102
+num.names$ -- 68
+pop$ -- 300
 preamble$ -- 1
-purify$ -- 136
+purify$ -- 115
 quote$ -- 0
-skip$ -- 318
+skip$ -- 263
 stack$ -- 0
-substring$ -- 40
-swap$ -- 10
+substring$ -- 34
+swap$ -- 8
 text.length$ -- 0
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 220
-warning$ -- 22
-while$ -- 60
+type$ -- 187
+warning$ -- 23
+while$ -- 51
 width$ -- 0
-write$ -- 265
-(There was 1 error message)
+write$ -- 220
+(There were 23 warnings)

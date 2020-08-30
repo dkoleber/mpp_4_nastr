@@ -15,16 +15,23 @@
 \usepackage{placeins}
 \usepackage{layout}
 \usepackage{booktabs}       % For \toprule, \midrule and \bottomrule
-\usepackage{siunitx}        % Formats the units and values
+\usepackage{graphicx}
+\usepackage{multicol}
+
 \usepackage{pgfplotstable}  % Generates table from .csv
+\usepackage{siunitx}        % Formats the units and values
+\sisetup{
+    round-mode=places,
+    round-precision=3,
+    scientific-notation=false,
+}
+\usepgfplotslibrary{external} 
+\tikzexternalize
 
 \bibliographystyle{plainnat}
 \setlength{\headsep}{5pt}
 
-\sisetup{
-    round-mode          = places, % Rounds numbers
-    round-precision     = 3, % to 3 places
-}
+
 
 \title{Placeholder Title}
 
@@ -40,94 +47,128 @@
 \begin{abstract}
     One of the saught after objectives within neural architecture search
     is the reduction of search time. Some recent approaches attempt to reduce
-    search time by using surrogate performance metric that predict performance
-    based on learning curves and/or architecture embeddings. 
-    In this paper, the efficacy of purely statistical methodology for accelerating
-    the search time of evolutionary algorithm oriented NAS approaches is assessed. Analysis of results
-    suggests that statistical methods do not provide meaningful search time reductions
-    within commonly used NAS search spaces.
+    search time by using surrogate models that predict performance
+    based on learning curves or architecture topologies. 
+    In this paper, the efficacy of purely a statistical methodology for accelerating
+    the search time of an evolutionary-algorithm-oriented architecture search is assessed. 
+    This methodology uses two different windowed measures of relative architecture preformance
+    to predict final relative performance.
+    Results suggest that such methodology does not enable acceleration via early stopping, 
+    but does improve search time by using a more efficent performance metric than directly measuring model performance.
 \end{abstract}
 
 \section{Introduction}
 
-    In recent years, various approaches to neural architecture search (NAS) have been 
-successful in discovering neural architectures in a variety of computer vision
-tasks as well as in language modeling, and INSERT SOMETHING. While many discovered architectures
-have achieved state-of-the-art performance on popular computer benchmarks,
-the compute cost of NAS acts as a significant obstacle.
+In recent years, various approaches to neural architecture search (NAS) have been 
+successful in discovering high-performance neural architectures in a variety of spaces, primarily computer vision.
+While many discovered architectures have achieved state-of-the-art performance on popular benchmarks, the compute cost of NAS acts as a significant obstacle.
 
-    Works within the field have taken many different approaches to reducing search time.
-Of the most significance to this work is the approach of using a performance surrogate,
-which allows the prediction of an architecture's performance prior to training completion.
-The effectiveness of different executions of approach manifest themselves in efficiency improvements 
-all the way from early stopping to \cite{arch_pred_1} architecture analysis without the necessity to train.
-\cite{snas} \cite{darts} 
-\cite{arch_pred_1}
-\cite{econas}
-\cite{amoebanet}
-\cite{acc_pred_1}
-\cite{pnas}
-\cite{lemonade}
-\cite{nasnet}
-\cite{learning_curve_1}
-\cite{synthetic_samples}
-\cite{snas}
-\cite{enas}
-\cite{cars}
-\cite{rl_nas}
-\cite{evolved_transformer}
-\cite{multitask_1}
-\cite{mnas}
-\cite{obj_detection_1}
-\cite{hardware_darts}
+Works within the field have taken many different approaches to reducing search time.
+One common approach is the use of a surrogate predictor model,
+which allows the prediction of an architecture's performance prior to training completion, or sometimes prior to training altogether.
+This, however, comes with the downside of the predictor model requiring training data from the search space prior to being able to 
+act in the search space, creating a chicken-or-the-egg problem.
+While there are solutions to getting around this dilemma, this work seeks to remove the need for the surrogate model entirely.
 
+\subsection {Neural Architecture Search Background}
+
+Neural architecture search, generally defined as the automation of the design of neural network architectures, has made leaps and bounds within recent years.
+The field was pioneered in \emph{Neural Architecture Search with Reinforcement Learning} \cite{rl_nas} as a single-objective search for an image classifier architecture 
+with an unbounded search space, which achieved SOTA on Cifar-10.
+Since then, the field progressed significantly, all the while diversifying the approaches and goals for neural architecture search.
+
+NASNet \cite{nasnet} pushed the field forward in the direction of scalability, showing that a bounded search space that could be stacked in the form
+of cells produced architectures for Cifar-10 which also scaled to perform well on ImageNet.
+
+Some works have innovated in the direction of the search mechanism, moving away from a reinforcement learning driver, toward evolution-based \cite{amoebanet}
+or differentiable architecture search \cite{darts}.
+
+Other works have investigated alternative search objectives, such as implementing platform-aware searches \cite{mnas} \cite{hardware_darts}, 
+or multi-objective searches \cite{lemonade} which explores the Pareto fronts including network performance and network size.
+
+While the majority of recent works have remained within the image classification space, some have broken out of image classification and computer vision
+altogether to find solutions to language modelling, like \emph{The Evolved Transformer} \cite{evolved_transformer}.
 
 
-\subsection{Background and Related Work}
+\subsection{Related Work}
 
+A major goal within the nerual architecture search field has been the reduction of search time.
+The reduction of search time has been achieved through approaches like parameter sharing \cite{enas} \cite{cars},
+the use of smaller performance proxies \cite{econas}, or performance preditors.
+PNAS used a reinforcement-learning-based surrogate model which predicted \emph{relative} network performance based on cell topology to drastically
+accelerate search. 
+Similarly, \emph{Peephole} \cite{peephole} predicts network performance based on network topology with a LSTM agent.
+A notable shortcoming of these approaches is the fact that the surrogate model requires retraining between different cell topologies.
 
+Rather than relying on cell topology to predict performance prior to training, some works attempt to predict performance based on learning curves.
+This was initially done with the objective of hyperparameter optimization \cite{hparam_opt_1} with a weighted probabilistic learning curve model.
+This was built upon with the addition of Bayesian models \cite{bayesian_pred} and \emph{v}-SVRs \cite{vsvr_pred}.
+Common among these approaches that utilize the learning curve for performance prediction is that they are used to predict model performance directly,
+rather than predicting a metric that correlates with model performance.
 
+Direct prediction of network performance is not always necessary. 
+As discussed in PNAS \cite{pnas}, the important quality of a predictor is the ability to rank models in same order as they would be ranked if ordered
+according to their true performances.
+This allows for the selection of the best models irrespective of their actual performances.
 
-For NAS approaches utilizing genetic evolutionary algorithms, the means with which the algorithm determines the most and least fit candidates 
-for mutation and optionally removal hinges upon the ability to determine comparative performance between candidates. The go-to metric for 
-determining the performance of candidates with single-objective models is validation or test accuracy or error. However, recent approaches 
-have forgone ratio variables to measure perforance in favor of ordinal variables \cite{pnas}, since relative performance is the only necessity 
-for common selection strategies like traditional tournament selection and its variations, such as aging selection \cite{amoebanet}. 
-In the case of PNAS \cite{pnas}, a surrogate model is used to predict model performance in a way that ranks models approximately as they would
-be ranked as they would be using actual performance.
-
-
-\subsection{Approach}
-
-Using a surrogate model to predict model rank has the downside of training surrogate model to predict in a space that's growing in parallel with the
-surrogate. PNAS \cite{pnas} proposes a clever solution to this which allows the surrogate to train over more data during the beginning of search.
+A shortcoming of many surrogate model approaches is the fact that the surrogate model must be trained prior to or during the architecture search.
+PNAS \cite{pnas} proposes a clever solution to this which allows the surrogate to train quickly at the beginning of the search, while scaling as the search progresses.
 Its proposed approach is only possible due to the fact that the PNAS search space has the capability to expand its search space in a way that
-allows the initial, smaller search spaces to be representative of the later, larger search spaces in a way that is meaningful to the surrogate.
-Such an approach doesn't provide benefits to search spaces that aren't expandable in a manner similar to that of PNAS, which means a surrogate would
-have to train on architectures representing a complete search space. 
+allows the initial, smaller search space to be representative of the later, larger search space in a way that maintains the relvance of the surrogate.
 
 
-Surrogate models are not the only way to predict candidate ranking. Two ways to represent relative performances of a population of candidates are the following 'performance metrics':
+\section{Approach}
 
-- Raw Rank Measurements Based on Candidate Accuracy
+All surrogate models come with the downside of requiring some amount of data to be used for training prior to being able to effectively predict performance.
+In this section, a method with which intrinsic properties of a population can be utilized to predict relative performances, is discussed.
 
-Rank measurements are a clear way to represent accuracies as ordinal data. No additional explanation is necessary.
 
-- Z-Scores of Candidate Accuracy
+Two ways to represent relative performances of a population of candidates are the following 'performance metrics':
+\begin{itemize}
+    \item \emph{Raw ranks}: Given candidates trained to the same epoch, 
+        candidates can be evaluated at epoch up to and including the final epoch to determine their relative rankings based on performances at that epoch.
+    \item \emph{Z-scores}: Similar to raw ranks, candidates can be evaluated at an epoch according to the z-scores of their performances at that epoch.
+        Z-scores have the added benefit over raw ranks of providing a better indication of outliers in clusters, as is intrinsic with interval data 
+        in comparison to ordinal data.
+        Some of the meaningfulness of z-scores is lost due to the fact that model performances do not appear to fall in a normal distribution for at least one of the 
+        search spaces used later in this work, NASBench 201 \cite{nasbench201}.
+        In this space, final performances of models trained to 200 epochs on Cifar10 result in an Anderson-Darling test statistic of 2717.199 without a 
+        Box-Cox transform, and 718.514 with, strongly indicating that model performances do not fall within a normal distribution.
+        Nonetheless, z-scores still provide more information about relative model performances than raw ranks.
 
-Zz-scores of candidate performance can somewhat act as interval data and thus can better represent outliers and clusters in comparison to raw ranks. 
-Z-Scores are typically used with normal distributions.
-Model accuracies in NASBench 201 \cite{nasbench201} provide a complete view of the distributions of accuracies in what could be considered to be 
-a search space representative of common NAS search spaces. 
-An Anderson-Darling test over model test accuracies for Cifar10 (200 epochs) in NASBench201 produces a test statistic of 2717.199 
-(718.514 after a Box-Cox transform) indicates at all significance levels that model accuracies do not fall into a normal distribution. 
-Nonetheless, z-scores still provide a way to judge relative model performance.
+\end{itemize}
 
-The relevant benefit of ordinal and interval performance metrics is that a population's measurements evaluated at an early epoch are 
-directly comparable to its measurements at a later epoch. This is the basis for the possibility of search time acceleration, since
-the early performances have the potential to be predictive of final performances.
+To be explicit, the relevant benefit of ordinal and interval performance metrics is that a population's measurements evaluated at an early epoch are 
+directly comparable to its measurements at a later epoch. 
+This is the basis for the possibility of search time acceleration, since the early performances have the potential to be predictive of final performances.
 
-% \printinunitsof{in}\prntlen{\textwidth}
+Search time is accelerated by early stopping at epochs specified by scaling the total number of epochs $T$ by different \emph{prediction epoch scalars} in $E^s$,
+
+\[E^s = \{1, 0.5, 0.25, 0.125\}\]
+
+This produces the actual \emph{prediction epochs} at which final model performance rank will be predicted, $E^{a}$.
+A number of epochs up to the prediction epoch are used to predict final performance. 
+The number of epochs which are used are specified by a \emph{prediction window} which is determined by scaling the prediction epoch
+by a \emph{prediction window scalar} from $W^s$
+
+\[W^s = \{1, 0.5, 0.25, 0.001\}\]
+
+This determines actual prediction windows $W^a$.
+Within each window, performance metrics defined by $M$ can be used to calculate relative performances at each epoch within the window.
+
+\[M = \{f_{zm}, f_{rm}\}\]
+
+As discussed before, these performance metrics include z-score measurements \emph{ZM}'s, and raw rank measurements \emph{RM}'s.
+Performance metrics are averaged over the window to produce final performance predictions for the population $P$.
+
+\[f_{zm}(x, e, w) = \frac{1}{e-w}\sum_{i=e-w}^{e}\frac{x_i - \mu_i}{\sigma_i}\]
+\[f_{rm}(x, e, w) = \frac{1}{e-w}\sum_{i=e-w}^{e}r_{x_{i}}(P)\]
+\[predictions(P, e, w, f_{predictor}) = r(map(P, f_{predictor}))\]
+\begin{center}
+where
+\end{center}
+\[r(P) = rank\ of\ every\ element\ in\ P\]
+\[r_{x}(P) = rank\ of\ x\ within\ P\]
 
 \section{Experiments}
 
@@ -139,10 +180,10 @@ using the two performance predictors to find the best candidates at different po
 
 \subsubsection{Experiment Details}
 Three populations of trained models from two different architecutre search spaces are sampled.
-The first two populations are sampled subsets of the architectures available in NASBench201 \cite{nasbench201}.
+The first two populations are sampled subsets of the architecture space available in NASBench201 \cite{nasbench201}.
 Each of these populations contains four subpopulations.
 The first population, \emph{NASBench201 100p}, has subpopulations consisting of 100 models each, the size of which is chosen to mirror the working population size 
-used in aging tournament selection experiments later in this paper.
+used in aging tournament selection experiments later in this work.
 The second population, \emph{NASBench201 16p}, has subpopulations consisting of 16 models each, the size of which is chosen to mirror the number of models in the 
 subpopulations of the third population.
 The third population, \emph{NASNet 16p}, is generated four different hyperparemeter configurations within a search space similar to that of NASNet \cite{nasnet}.
@@ -153,50 +194,29 @@ Specific implementation details of this search space are provided in the appendi
 
 Each subpopulation $P$ undergoes a grid search, evaluating each combination between elements of $E^s$, $W^s$, and $M$.
 Each such evaluation at a given combination is referred to as a \emph{simulation}.
-The set of \emph{prediction epoch scalars} $E^s$ scales $t$, the total number of epochs per model in $P$,
-to produce the actual \emph{prediction epochs} at which final model performance rank will be predicted, $E^{a}$.
-This facilitates early performance prediction and thus the potential for search acceleration.
-The set of \emph{prediction window scalars} $W^s$ scales $E^a$ to produce the actual \emph{prediction windows} to be used 
-over trained epochs to be used during evaluation, $W^a$.
-The set of \emph{evaluation metric} functions $M$ includes functions for calculating an evaluation metric,
-given a model, a prediction epoch, and a prediction window. 
-These metric functions include averaged-over-window z-score measurements \emph{ZM}'s, and raw rank measurements \emph{RM}'s.
-
-\[E^s = \{1, 0.5, 0.25, 0.125\}\]
-\[W^s = \{1, 0.5, 0.25, 0.001\}\]
-\[M = \{f_{zm}, f_{rm}\}\]
-
-\[f_{zm}(x, e, w) = \frac{1}{e-w}\sum_{i=e-w}^{e}\frac{x_i - \mu_i}{\sigma_i}\]
-\[f_{rm}(x, e, w) = \frac{1}{e-w}\sum_{i=e-w}^{e}r_{x_{i}}(P)\]
-
-\[predictions(P, e, w, f_{predictor}) = r(map(P, f_{predictor}))\]
-
-\[r(P) = rank\ of\ every\ element\ in\ P\]
-\[r_{x}(P) = rank\ of\ x\ within\ P\]
-
-In each simulation, $P$ is shuffled then evaluated incrementally.
+In each simulation, $P$ is shuffled, then evaluated incrementally.
 Thus, each simulation evaluates a simulated population as if it were growing to its final size, while using
-the evaluation metrics to estimate simulated population rankings at each step.
+the prediction metrics to estimate simulated population rankings at each step.
 This allows a direct comparison between the predicted rankings and actual rankings at each increment.
 Simlar to PNAS \cite{pnas}, the Spearman Coefficient is chosen to judge the reliability of early prediction of population performance ranks.
 At the addition of each subsequent model to the simulated population, proportaional average rank error (\emph{PARE}), proportional rank error for the newest model (\emph{PNRE}), and the Spearman Coefficient
-for the simulated population are measured and used as evaluation metrics. 
+for the simulated population are measured and used as \emph{evaluation metrics}.
 Each simulation is run $N$ times, and evaluation metrics are averaged across simulation iterations. 
 Refer to the Figure ~\ref{fig:nasnet_1x_acceleration}, ~\ref{fig:nasnet_2x_acceleration}, ~\ref{fig:nasnet_4x_acceleration}, and ~\ref{fig:nasnet_8x_acceleration} in Appendix for simulation results.
 Additionally, the correlation between new model's predicted rank and the corresponding PNRE is measured for each simulation,
 and results are averaged across simulation iterations and subpopulations. 
-Correlation results over evaluation metric tracked tightly, and these results were also invariant over different prediction window scalars, so results were averaged over
+Correlation results over prediction metric tracked tightly, and these results were also invariant over different prediction window scalars, so results were averaged over
 these dimensions as well, for rank/PNRE correlations mapping directly to prediction epoch scalars (Table ~\ref{table:rank_error_corr}).
 
 \subsubsection{Analysis}
 
 Unless stated otherwise, only NASBench201 100p will be analyzed, since its increased population size decreases potential variance in measured properties.
 
-\textbf{Higher acceleration rates result in higher new rank error, and lower Spearman coefficients.}
-New rank error and Spearman ccoefficients converge to levels that show clear trends that increase and decrease respectively with acceleration rate.
+\textbf{Earlier stopping result in higher new rank error, and lower Spearman coefficients.}
+New rank error and Spearman ccoefficients converge to levels that show clear trends that decrease and increase respectively with the prediction epoch scalar.
 This is unsurprising, as these measurements are based on model performance that are further away in terms of epochs to their
 otherwise final performance. 
-Independent of acceleration rate, average rank error appears to converge to $\frac{1}{3}$.
+Independent of early stopping, average rank error appears to converge to $\frac{1}{3}$.
 This value is signicant since it's the expected distance between two points randomly sampled from two uniformly distributed variables over $[0, 1]$.
 The predicted and actual rankings, when divided by the simulated population size, are two such uniformly distributed variables, 
 thus it would also be expected for rankings that are predicted randomly to have a PARE near $\frac{1}{3}$.
@@ -218,7 +238,7 @@ In fact, the two are definitionally the same for populations trained to a number
 \textbf{PNRE has an overall weak-to-moderate positive correlation with the predicted new rank.}
 This trend is better observed with NASBench201 simulations, due to the fact that its larger simulated population will produce an innately more accurate
 representation of such a trend. 
-Across all prediction epoch scalars providing acceleration, the correlation between PNRE and predicted new rank is $0.437$,
+Across all prediction epoch scalars providing early stopping, the correlation between PNRE and predicted new rank is $0.437$,
 indicating a weak-to-moderate positive correlation. 
 This can be interpreted optimistically to suggest that, in an evolution context, the degree of exploration will be bolstered
 outside of the exploration facilitated by the evolutionary algorithm alone. 
@@ -232,7 +252,7 @@ With NASNet simulations, Spearman coefficients remain consistenly higher and new
 Nonetheless, NASNet simulations show an average rank error trajectories similar to the trajectories that NASBench201 simulations play out.
 \textbf{HYPOTHESIZE}
 
-\subsection{Aging Search Experimentats}
+\subsection{Evolutionary Search Experiments}
 
 Results from stochastic search experimentation are only applicable to an evolutionary algorithm context during the population's development prior to 
 selection mechanisms taking effect, since selection mechanisms generally increase the frequency of higher-performance candidates. 
@@ -251,19 +271,63 @@ Similar to the previous experiment, a grid search is conducted over $E^s$, $W^s$
 Each combination is simulated 64 times, \textbf{and the same measurements are taken at each step, in addition to the actual performance of what is predicted to be the
 best candidate within the population at each step.}
 Each simulation is given a time budget equal to $max(E^{s})ND_{\mu}$, where $N$ is the size of the NASBench201 search space, and $D$ represents the NASBench201 training durations.
-This is intended to allow the possiblity of only the fastest acceleration exploring the entire NASBench201 search space.
+This is intended to allow the possiblity of only the smallest prediction epoch scalar exploring the entire NASBench201 search space.
 
 Results for this experiment's grid search are displayed in Figures \textbf{???}. 
-Additionally, Figure \textbf{???} shows the actual performance of what is predicted to be the best candidate within the population for each grid search configuration
-in respect to elapsed time.
+Additionally, Figure ~\ref{fig:nasbench_best_perf_vs_size} shows the actual performance of the candidate predicted to be the best within the population for each grid search configuration,
+in respect to the number of models evalued so far.
 
 \subsubsection{Analysis}
 
+\textbf{Searches with early stopping only result in better models at low time budgets.}
+As shown in Figure ~\ref{fig:nasbench_best_perf_vs_slice}, searches with early stopping only outperform normal searches early on within the allotted time budget.
+This provides an answer to the primary focus of this experiement: Using a statistical approach for early stopping and thus early stopping
+is shown to only provide advantages with low time budgets.
+In the case of this experiment, a low time budget signifies a buget equal to less than 10% of the expected time to fully explore the NASBench201 search space.
 
+\textbf{Normal search without early stopping performs better with windows that contain more than the last epoch.}
+With these simulations, normal search performs best with a window over all epochs, rather than only the last epoch which represents the true candidate performance.
+This suggests that candidates that perform better overall tend to be close to the candidates with the best performances within the search space.
+This is fairly impactful, since this implies that the traditional method of using final performace to be the judge of a model might not be the optimal
+metric for determining the best candidate during an evolutionary selection step.
+This comes with the stipulation that the time budget only allows partial exploration of the search space without early stopping.
+To determine the impact of a larger time budget on the performance of different windows with normal search, an ablation study will be conducted.
 
+\textbf{RM outperforms ZM in most cases.}
+In the vast majority of cases, RM results in lower PARE, PNRE, and Spearman Coefficients.
+This is represented in Table ~\ref{table:full_sim_nasnet_convergence}, where all measurement ratios with 5% or more advantage are to the advantage of RM.
 
+\subsection{Ablation Study: Impact of Windows without Early Stopping}
 
-\textbf{average population sizes per configuration, running metric triad, actual best performances over time ** vs time}
+This study will be composed of a narrowed version of the evolutionary experiment where normal search is evaluated with an expanded search time budget.
+Specifically, the search budget will be equal to the expected duration to fully explore NASBench 201 by brute-force. 
+It should be noted that the evolutionary algorithm encompases an identity mechanism which allows already-evaluated candidates to exist within the population.
+Thus, the algorithm does not provide the guarantee that the entire search space will be explored within the expected duration for full exploration.
+This caveat is reconciled by the fact that NASBench 201 contains a narrow search space in comparison to search spaces such as the NASNet variant used in this work
+which is $3.299\cdot10^{11}$ times larger. Results for this experiment can be found in \textbf{??????}
+
+\subsubsection{Analysis}
+
+Besides the very initial time steps in each search, searches with a window of 1 are shown to result in higher performances at faster rates in comparsion to all other
+window sizes. 
+Searches using only the last epoch's performance can be to be slowly converging toward the same performances, but expanding the search time budget further loses
+meaninfulness since the search space would at that point be better explored by brute force anyway.
+The impact of windows on normal search will thus need further evaluation on larger search spaces and larger time budgets in a future study.
+Regardless, these results suggest that search is at least initially accelerated by the use of a window over the entirity of trained epochs.
+
+\section{Discussion and Future Work}
+
+The primary contribution of this work is the demonstration that the use of a proxy metric for performance within evoluationary architecture search
+results in higher performances at fixed time budgets in comparison to direct performance measurement, within the NASBench 201 search space.
+If, in future work, this method is shown to carry over to different search spaces and macro-architectures, this provides a simple
+means to further improve search speed.
+Additionally, this work demonstrates that performance prediction at early stops using two different statistical measures does not provide meaningful search acceleration.
+
+As discussed in the ablation study, future directions include the verification of the primary contribution over larger search spaces and search time budgets.
+Additionally, the investigation into factors influencing the normality of population performance distrubtions across different search spaces
+could yield opportunities for approaches that rely on the normality of population distributions. 
+This is of course contingent on the absence of the possiblity for vanishing gradients among other similar problems, which otherwise would
+lead to inevitable clusters within the population.
 
 
 
@@ -318,44 +382,61 @@ in respect to elapsed time.
 
 \FloatBarrier
 \clearpage
-\onecolumn
 \appendix
 \section{Appendix}
 
 \subsection{Stochastic Search Results}
 \subsubsection{NASNet Simulations}
 
-\begin{figure}[!h]
+
+\begin{figure}
     \begin{center}
-        \input{../res/figures/nasnet_1x_acceleration.pgf}
+        \resizebox{\columnwidth}{!}{
+            \input{../res/figures/nasnet_1x_acceleration.pgf} 
+        }
+        \caption{NASNet Simulation with 1x Acceleration}
+        \label{fig:nasnet_1x_acceleration}
     \end{center}
-    \caption{NASNet Simulation with 1x Acceleration}
-    \label{fig:nasnet_1x_acceleration}
+\end{figure}
+
+
+\begin{figure}
+    \begin{center}
+        \resizebox{\columnwidth}{!}{
+            \input{../res/figures/nasnet_2x_acceleration.pgf} 
+        }
+        \caption{NASNet Simulation with 2x Acceleration}
+        \label{fig:nasnet_2x_acceleration}
+    \end{center}
+\end{figure}
+        
+\begin{figure}
+    \begin{center}
+        \resizebox{\columnwidth}{!}{
+            \input{../res/figures/nasnet_4x_acceleration.pgf}
+        }
+        \caption{NASNet Simulation with 4x Acceleration}
+        \label{fig:nasnet_4x_acceleration}
+    \end{center}
 \end{figure}
 
 \begin{figure}
     \begin{center}
-        \input{../res/figures/nasnet_2x_acceleration.pgf}
+        \resizebox{\columnwidth}{!}{
+            \input{../res/figures/nasnet_8x_acceleration.pgf}
+        }
+        \caption{NASNet Simulation with 8x Acceleration}
+        \label{fig:nasnet_8x_acceleration}
     \end{center}
-    \caption{NASNet Simulation with 2x Acceleration}
-    \label{fig:nasnet_2x_acceleration}
 \end{figure}
 
-\begin{figure}
-    \begin{center}
-        \input{../res/figures/nasnet_4x_acceleration.pgf}
-    \end{center}
-    \caption{NASNet Simulation with 4x Acceleration}
-    \label{fig:nasnet_4x_acceleration}
-\end{figure}
+\FloatBarrier
+\onecolumn
 
-\begin{figure}
-    \begin{center}
-        \input{../res/figures/nasnet_8x_acceleration.pgf}
-    \end{center}
-    \caption{NASNet Simulation with 8x Acceleration}
-    \label{fig:nasnet_8x_acceleration}
-\end{figure}
+
+
+
+
 
 \FloatBarrier
 \clearpage
@@ -401,8 +482,15 @@ in respect to elapsed time.
     \begin{center}
         \caption{NASNet Points of Convergence}
         \label{table:nasnet_convergence}
-        \pgfplotstabletypeset[col sep=comma]
-        {../res/figures/nasnet_convergences.csv}
+        \resizebox{\textwidth}{!}{
+            \pgfplotstabletypeset[
+                    col sep=comma,
+                    trim cells=true,
+                    every head row/.style={before row=\toprule,after row=\midrule},
+                    every last row/.style={after row=\bottomrule},
+                    every column/.style={numeric type,fixed,precision=3,dec sep align}
+                    ]{../res/figures/nasnet_convergences.csv}
+        }
     \end{center}
 \end{table}
 
@@ -410,23 +498,36 @@ in respect to elapsed time.
     \begin{center}
         \caption{NASBench201 16p Points of Convergence}
         \label{table:nasnet_convergence}
-        \pgfplotstabletypeset[col sep=comma]
-        {../res/figures/nasbench_16_convergences.csv}
+        \resizebox{\textwidth}{!}{
+            \pgfplotstabletypeset[
+                col sep=comma,
+                trim cells=true,
+                every head row/.style={before row=\toprule,after row=\midrule},
+                every last row/.style={after row=\bottomrule},
+                every column/.style={numeric type,fixed,precision=3,dec sep align}
+                ]{../res/figures/nasbench_16_convergences.csv}
+        }
     \end{center}
 \end{table}
 
-\begin{table}
+\begin{table}[!h]
     \begin{center}
         \caption{NASBench201 100p Points of Convergence}
         \label{table:nasnet_convergence}
-        \pgfplotstabletypeset[col sep=comma]
-        {../res/figures/nasbench_100_convergences.csv}
+        \resizebox{\textwidth}{!}{
+            \pgfplotstabletypeset[
+                col sep=comma,
+                trim cells=true,
+                every head row/.style={before row=\toprule,after row=\midrule},
+                every last row/.style={after row=\bottomrule},
+                every column/.style={numeric type,fixed,precision=3,dec sep align}
+                ]{../res/figures/nasbench_100_convergences.csv}
+        }
     \end{center}
 \end{table}
 
 \FloatBarrier
-\clearpage
-\subsection{Rank Error vs Rank Correlations}
+\subsubsection{Rank Error vs Rank Correlations}
 
 \begin{table}[!h]
     \begin{center}
@@ -444,40 +545,147 @@ in respect to elapsed time.
     \end{center}
 \end{table}
 
-%\begin{figure}[!h]
-%    \begin{center}
-%        \input{../res/figures/nasbench_16_rank_error_correlations.pgf}
-%    \end{center}
-%    \caption{NASBench201 16p Rank Error Correlations with Rank}
-%    \label{fig:nasbench_rank_error_correlations}
-%\end{figure}
-%
-%\begin{figure}[!h]
-%    \begin{center}
-%        \input{../res/figures/nasbench_100_rank_error_correlations.pgf}
-%    \end{center}
-%    \caption{NASBench201 100p Rank Error Correlations with Rank}
-%    \label{fig:nasbench_rank_error_correlations}
-%\end{figure}
+\FloatBarrier
+\subsection{Aging Tournament Search}
 
-%\begin{figure}
-%    \begin{center}
-%        \input{../res/figures/nasnet_rank_error_correlations.pgf}
-%    \end{center}
-%    \caption{NASNet Rank Error Correlations with Rank}
-%    \label{fig:nasnet_rank_error_correlations}
-%\end{figure}
+\begin{figure}[!h]
+    \begin{center}
+        \input{../res/figures/64_evosim_all_performances_over_size.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation Performances vs History Size}
+    \label{fig:nasbench_best_perf_vs_size}
+\end{figure}
 
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_evosim_all_performances_over_slices.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation Performances vs Time Slice}
+    \label{fig:nasbench_best_perf_vs_slice}
+\end{figure}
+
+\begin{table}
+    \begin{center}
+        \caption{NASBench201 Points of Convergence}
+        \label{table:full_sim_nasnet_convergence}
+        \resizebox{\textwidth}{!}{
+            \pgfplotstabletypeset[
+                col sep=comma,
+                trim cells=true,
+                every head row/.style={before row=\toprule,after row=\midrule},
+                every last row/.style={after row=\bottomrule},
+                every column/.style={numeric type,fixed,precision=3,dec sep align}
+                ]{../res/figures/64_full_sim_convergences.csv}
+        }
+    \end{center}
+\end{table}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_evosim_1x_acceleration.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with No Acceleration}
+    \label{fig:evo_nasbench_1x_acceleration}
+\end{figure}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_evosim_2x_acceleration.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with 2x Acceleration}
+    \label{fig:evo_nasbench_2x_acceleration}
+\end{figure}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_evosim_4x_acceleration.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with 4x Acceleration}
+    \label{fig:evo_nasbench_4x_acceleration}
+\end{figure}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_evosim_8x_acceleration.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with 8x Acceleration}
+    \label{fig:evo_nasbench_8x_acceleration}
+\end{figure}
+
+\FloatBarrier
+\subsubsection{Aging Tournament Ablation Study}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_extended_evosim_1x_acceleration.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with No Acceleration}
+    \label{fig:evo_ext_nasbench_1x_acceleration}
+\end{figure}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_extended_evosim_all_performances_over_size.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with No Acceleration}
+    \label{fig:evo_ext_nasbench_all_perfs}
+\end{figure}
+
+\begin{figure}
+    \begin{center}
+        \input{../res/figures/64_extended_evosim_all_performances_over_slices.pgf}
+    \end{center}
+    \caption{NASBench201 Simulation with No Acceleration}
+    \label{fig:evo_ext_nasbench_best_at_slice}
+\end{figure}
 
 \FloatBarrier
 \subsection{NASNet Population Details}
 
-Using these possible ops
+The search space is similar to that of NASNet, with only the modification of possible operations. 
+Possible operations include the following:
+\begin{multicols}{2}
+\begin{itemize}
+    \item Identity
+    \item Convolution 3x3
+    \item Depthwise Seperable Convolution 3x3
+    \item Depthwise Seperable Convolution 5x5
+    \item Depthwise Seperable Convolution 7x7
+    \item Average Pooling 3x3
+    \item Average Pooling 5x5
+    \item Max Pooling 3x3
+    \item Max Pooling 5x5
+    \item Depthwise Seperable Convolution 1x7 followed by Depthwise Seperable Convolution 7x1
+\end{itemize}
+\end{multicols}
 
-Each evaluated to 16 epochs, how big is population?
+This results in the search space of $(10^{5}\cdot(6! - 2!))^{2} = 5.155\cdot10^{15}$ architectures, in comparison to the NASNet space which
+has $(13^{5}\cdot(6! - 2!))^{2} = 7.107\cdot10^{16}$ architectures.
+The NASNet 16p population is comprised of the following six subpopulations specified by their hyperparameters, all of which are trained on Cifar-10.
+The population is intended to represent an architecture near the base architecture used to evaluate Cifar-10 in NASNet, in addition to a variety of smaller
+proxies.
 
-hyperparameters are as follows.
+\begin{table}[!h]
+    \begin{center}
+        \begin{tabular}{c | c | c | c | c | c}
+            \toprule
+            Subpopulation   & Layers & Normal Cells per Layer   & Filters   & Epochs   & Parameters ($\mu$)\\
+            \midrule
+            1               & 3      & 3                        & 24        & 16       & 1766642.5 \\
+            2               & 3      & 3                        & 24        & 32       & 1766642.5 \\
+            3               & 3      & 5                        & 24        & 16       & 2719517.5 \\
+            4               & 3      & 5                        & 32        & 16       & 4735204 \\
+            4               & 3      & 6                        & 32        & 16       & 5564662 \\
+            4               & 3      & 6                        & 32        & 32       & 5564662 \\
+            \bottomrule
+        \end{tabular}
+        \caption{NASNet Subpopulation Configurations}
+        \label{table:nasnet_details}
+    \end{center}
+\end{table}
 
-UPDATE CHARTS TO INDICATE WHAT ORANGE/BLUE MEANS
+
+
+\textbf{UPDATE CHARTS TO INDICATE WHAT ORANGE/BLUE MEANS}
 
 \end{document}

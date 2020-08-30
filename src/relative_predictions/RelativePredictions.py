@@ -32,7 +32,15 @@ from model.MetaModel import  *
 from nas_201_api import NASBench201API as nasapi
 
 
+def save_plt(s):
+    if is_linux():
+        plt.savefig(f'{s}.pgf')
+    else:
+        plt.savefig(f'{s}.jpg')
 
+def remove_lowercase(s):
+    table = str.maketrans('', '', string.ascii_lowercase)
+    return s.translate(table)
 
 def random_exclusive(max_val, n):
     all_vals = np.arange(max_val)
@@ -272,13 +280,6 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
     # print(f'metrics shape: {metrics.shape}') # dims = (prediction epochs, windows, population group, datapoint, steps, metric type)
     # print(f'rank corrs shape: {rank_corrs.shape}') # dims = (prediction epochs, windows, population group, metric type)
 
-    def save_plt(s):
-        # print(f'saving {s}')
-        if is_linux():
-            plt.savefig(f'{s}.pgf')
-        else:
-            plt.savefig(f'{s}.jpg')
-
     actual_width = 5.5
     height = actual_width
     point_names = ['Average Rank Error', 'New Rank Error', 'Spearman Coef']
@@ -310,7 +311,12 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
 
                 converge_cutoff = int(num_models/4)
                 converge = metrics[pred_ind, window_ind, :, datapoint, -converge_cutoff:, :].mean(axis=0).mean(axis=0)
+
                 datapoint_convergences.extend(converge)
+                if converge[1] == 0:
+                    datapoint_convergences.append(0)
+                else:
+                    datapoint_convergences.append(converge[0]/converge[1])
 
                 for population_ind in range(num_populations):
                     for metric_ind in range(num_eval_metrics):
@@ -327,18 +333,17 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
 
         plt.tight_layout()
         save_name = os.path.join(fig_dir, f'{fig_name}')
+        print(f'saving {save_name}')
         save_plt(save_name)
 
-    def remove_lowercase(s):
-        table = str.maketrans('', '', string.ascii_lowercase)
-        return s.translate(table)
 
     conv_frame = DataFrame(data=np.array(convergences))
-    col_names = ['Prediction Epoch', 'Window']
-    for datapoint_name in point_names:
-        for metric_name in metric_names:
-            col_names.append(f'{datapoint_name} {metric_name}')
-    col_names = [remove_lowercase(x) for x in col_names]
+    # col_names = ['Prediction Epoch', 'Window']
+    # for datapoint_name in point_names:
+    #     for metric_name in metric_names:
+    #         col_names.append(f'{datapoint_name} {metric_name}')
+    # col_names = [remove_lowercase(x) for x in col_names]
+    col_names = ['PES', 'WS', 'ZM PARE', 'RM PARE', 'PARE Ratio', 'ZM PNRE', 'RM PNRE', 'PNRE Ratio', 'ZM Spr', 'RM Spr', 'Spr Ratio']
     conv_frame.to_csv(os.path.join(fig_dir, f'{prefix}convergences.csv'), header=col_names, index=False)
 
     x_ticks = (0, 1, .25)
@@ -407,7 +412,7 @@ def analyze_nasbench_archs(sample_size=16):
     accuracies = [np.load(final_accuracies_filename)[x*sample_size:(x+1)*sample_size, :, 0] for x in range(4)]
     _analyze_multiple(accuracies, prefix=f'nasbench_{sample_size}_')
 
-def multi_config_test():
+def train_nasnet_archs():
 
     num_models = 16
 
@@ -504,6 +509,7 @@ def generate_nasbench201_final_properties_file(api, output_filename):
 
     print(f'shape: {np.array(all_props).shape}')
     np.save(output_filename, all_props)
+    
 def analyze_nasbench201_final_properties(output_filename, show = False):
     props = np.load(output_filename)
 
@@ -538,6 +544,7 @@ def analyze_nasbench201_final_properties(output_filename, show = False):
 def analyze_and_show_nasbench201_final_properties():
     final_accuracies_filename = 'nas_bench_201_cifar10_test_accuracies_200.npy'
     if not os.path.exists(final_accuracies_filename):
+        print('Generating NASBench final properties')
         api = get_nasbench201_api()
         generate_nasbench201_final_properties_file(api, final_accuracies_filename)
     analyze_nasbench201_final_properties(final_accuracies_filename, True)
@@ -644,24 +651,21 @@ def run_nas_api_evo(api, prediction_epoch_scalar, window_scalar, time_budget, us
             break
         del population[0]
 
-    sorted_history = sorted(history, key=lambda x: x[1][-1])
+    # sorted_history = sorted(history, key=lambda x: x[1][-1])
 
-    best_arch = sorted_history[-1][0]
+    # best_arch = sorted_history[-1][0]
     # best_arch_performance = sorted_history[-1][1]
-    best_arch_final_performance = api.query_by_index(api.query_index_by_arch(best_arch), 'cifar10', '200')[888].get_eval('ori-test')['accuracy']
+    # best_arch_final_performance = api.query_by_index(api.query_index_by_arch(best_arch), 'cifar10', '200')[888].get_eval('ori-test')['accuracy']
 
     # print(f'completed evaluation with {len(history)} candidates. best accuracy: {best_arch_final_performance}, arch: {best_arch}')
 
-    return best_arch, best_arch_final_performance, history
+    return history
 def get_full_sim_output_filename(sim_name, prediction_scalar, window):
     sim_dir = 'sim_results'
     if not os.path.exists(os.path.join(evo_dir, sim_dir)):
         os.makedirs(os.path.join(evo_dir, sim_dir))
     return os.path.join(evo_dir, sim_dir, f'sim_results_{sim_name}_scalar{prediction_scalar}_window{window}.json')
-def test_nasbench201(api, time_budget, num_sims, sim_name, use_zscore):
-    windows = [1, .5, .25, .001]
-    prediction_scalars = [1, .5, .25, .125]
-
+def test_nasbench201(api, time_budget, num_sims, sim_name, use_zscore, prediction_scalars, windows):
     for prediction_scalar in prediction_scalars:
         for window in windows:
             filename = get_full_sim_output_filename(sim_name, prediction_scalar, window)
@@ -670,12 +674,12 @@ def test_nasbench201(api, time_budget, num_sims, sim_name, use_zscore):
                 histories = []
                 for sim in range(num_sims):
                     duration = time.time()
-                    arch, perf, history = run_nas_api_evo(api, prediction_scalar, window, time_budget, use_zscore)
+                    history = run_nas_api_evo(api, prediction_scalar, window, time_budget, use_zscore)
                     l = len(history)
                     duration = time.time() - duration
                     histories.append(history)
 
-                    print(f'window: {window}, scalar: {prediction_scalar}, sim: {sim}/{num_sims}, perf: {perf}, len: {l}, duration: {int(duration*1000)/1000}')
+                    print(f'window: {window}, scalar: {prediction_scalar}, sim: {sim}/{num_sims}, len: {l}, duration: {int(duration*1000)/1000}')
                 print()
 
                 with open(filename, 'w+') as fl:
@@ -688,12 +692,19 @@ def run_nasbench201_sims(api):
     allotted_explore_time = expected_explore_time / 8
     num_sims = 64
 
-    test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_zscore', True)
-
-    # test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_rank', False)
-def analyze_nasbench201_sim_results():
     windows = [1, .5, .25, .001]
     prediction_scalars = [1, .5, .25, .125]
+
+    # test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_zscore', True, prediction_scalars, windows)
+
+    # test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_rank', False, prediction_scalars, windows)
+
+    prediction_scalars = prediction_scalars[:1]
+    test_nasbench201(api, expected_explore_time, num_sims, f'{num_sims}_extended_sims_zscore', True, prediction_scalars, windows)
+    test_nasbench201(api, expected_explore_time, num_sims, f'{num_sims}_extended_sims_rank', False, prediction_scalars, windows)
+
+
+def analyze_nasbench201_sim_results(prediction_scalars, windows, prefix):
     num_metrics = 2
     num_sims = 64
     num_measurements = 3
@@ -702,104 +713,18 @@ def analyze_nasbench201_sim_results():
     running_pop_size = 100
     max_pop_size = 20000
 
-    metric_names = ['64_sims_zscore', '64_sims_rank']
+    metric_names = [f'{prefix}sims_zscore', f'{prefix}sims_rank']
 
     population_sizes = None
     all_measurements = None
     actual_performances = None
 
     sim_dir = evo_dir / 'sim_results'
-    measurements_path = sim_dir / 'measurements.npy'
-    population_sizes_path = sim_dir / 'population_sizes.npy'
-    performances_path = sim_dir / 'actual_performances.npy'
+    measurements_path = sim_dir / f'{prefix}measurements.npy'
+    population_sizes_path = sim_dir / f'{prefix}population_sizes.npy'
+    performances_path = sim_dir / f'{prefix}actual_performances.npy'
 
     def gen_properties():
-        population_size = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims))
-        measurements = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, num_slices, num_measurements)) # pred, window, metric, sim, measurement, slice_ind
-        actual_performances_of_predicted_best = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, num_slices))
-
-        def get_actual_performance_of_predicted_best(history):
-            if len(history) == 0:
-                return 0.
-            else:
-                sorted_history = sorted(history, key=lambda x: x[1][-1])
-                return sorted_history[-1][2]
-
-        def get_measurements_in_slice(sl, metric_ind, window, num_slices):
-            rank_func = None
-            if metric_ind == 0:
-                rank_func = zm_rank
-            else:
-                rank_func = rm_rank
-
-            new_start = len(sl) - num_slices
-
-            accuracies = np.array([x[1] for x in sl])
-            cut_size = new_start - max(0, new_start - running_pop_size) # @1 = 1, @100 = 100  @101 = 100
-            accuracy_sets_at_each_point_in_slice = np.array([accuracies[new_start+x-cut_size:new_start+x+1] for x in range(num_slices)])
-
-            predicted_ranks = np.array([rank_func(x, window)[1] for x in accuracy_sets_at_each_point_in_slice])
-            actual_ranks = np.array([[x[2] for x in accuracies[new_start+x-cut_size:new_start+x+1]] for x in range(num_slices)])
-
-            pare = np.mean(np.abs(predicted_ranks - actual_ranks),axis=1)/predicted_ranks.shape[1]
-            pnre = np.abs(predicted_ranks[:,-1] - actual_ranks[:,-1])/predicted_ranks.shape[1]
-            spr = [spearman_coef_distinct(predicted_ranks[i], actual_ranks[i]) for i in range(num_slices)]
-
-            pare = np.mean(pare)
-            pnre = np.mean(pnre)
-            spr = np.mean(spr)
-
-            return [pare, pnre, spr]
-
-        def get_measurements_in_population(pop, metric_ind, window):
-            rank_func = None
-            if metric_ind == 0:
-                rank_func = zm_rank
-            else:
-                rank_func = rm_rank
-
-            accuracies = np.array([x[1] for x in pop])
-            predicted_ranks = rank_func(accuracies, window)[1]
-            actual_ranks = np.array([x[2] for x in pop])
-
-            pare = np.mean(np.abs(predicted_ranks - actual_ranks)) / predicted_ranks.shape[0]
-            pnre = np.abs(predicted_ranks[-1] - actual_ranks[-1]) / predicted_ranks.shape[0]
-            spr = spearman_coef_distinct(predicted_ranks, actual_ranks)
-
-            return (pare, pnre, spr)
-
-        for pred_ind, pred in enumerate(prediction_scalars):
-            for window_ind, window in enumerate(windows):
-                for metric_ind, metric_name in enumerate(metric_names):
-                    filename = get_full_sim_output_filename(metric_name, pred, window)
-                    print(f'loading {filename}')
-                    with open(filename, 'r') as fl:
-                        mixed_data = json.load(fl)
-                        for sim_ind, sim_history in enumerate(mixed_data): # history is [(arch_string, accuracies, actual_final_accuracy, utilized_time]
-                            population_size[pred_ind,window_ind,metric_ind,sim_ind] = len(sim_history)
-                            measurements_for_this_history = np.zeros((len(sim_history), num_measurements))
-                            for i in range(len(sim_history)):
-                                start_ind = max(0, i-running_pop_size+1)
-                                end_ind = i+1
-                                measurements_for_this_history[i] = get_measurements_in_population(sim_history[start_ind:end_ind], metric_ind, int(window*num_epochs))
-
-                            slice_inds = [int((x*len(sim_history)/num_slices)+1) for x in range(num_slices)]
-                            for index, slice_ind in enumerate(slice_inds):
-                                last_slice_ind = slice_inds[index-1] if index > 0 else 0
-                                measurements[pred_ind, window_ind, metric_ind, sim_ind, index] = measurements_for_this_history[last_slice_ind:slice_ind].mean(axis=0)
-                                actual_performances_of_predicted_best[pred_ind, window_ind, metric_ind, sim_ind, index] = get_actual_performance_of_predicted_best(sim_history[:slice_ind])
-
-                            #     last_actual_ind = max(0, last_slice_ind - running_pop_size)
-                            #     measurements[pred_ind, window_ind, metric_ind, sim_ind, index] = get_measurements_in_slice(sim_history[last_actual_ind:slice_ind], metric_ind, int(window*num_epochs), slice_ind-last_slice_ind)
-
-
-        np.save(measurements_path, measurements)
-        np.save(population_sizes_path, population_size)
-        np.save(performances_path, actual_performances_of_predicted_best)
-
-        return measurements, population_size, actual_performances_of_predicted_best
-
-    def gen_properties_alt():
         population_size = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims))
         measurements = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, max_pop_size, num_measurements))  # pred, window, metric, sim, measurement, slice_ind
         actual_performances_of_predicted_best = np.zeros((len(prediction_scalars), len(windows), num_metrics, num_sims, max_pop_size))
@@ -850,137 +775,191 @@ def analyze_nasbench201_sim_results():
 
         return measurements, population_size, actual_performances_of_predicted_best
 
-
     if not os.path.exists(population_sizes_path):
-        all_measurements, population_sizes, actual_performances = gen_properties_alt()
+        all_measurements, population_sizes, actual_performances = gen_properties()
     else:
-        all_measurements = np.load(measurements_path)
-        population_sizes = np.load(population_sizes_path)
-        actual_performances = np.load(performances_path)
-
-    print(all_measurements.shape)
-    print(population_sizes.shape)
-    print(actual_performances.shape)
-    # (4, 4, 2, 64, 20000, 3)
-    # (4, 4, 2, 64)
-    # (4, 4, 2, 64, 20000)
-
-    print(all_measurements[0, 0, 0, 0, :16, 0])
-
-    ax = plt.subplot(1, 1, 1)
-    for pred_ind, pred in enumerate(prediction_scalars):
-        for window_ind, window in enumerate(windows):
-            # actual_size = int(population_sizes[pred_ind, window_ind].mean(axis=0).mean(axis=0))
-            actual_size = int(np.min(population_sizes[pred_ind, window_ind]))
-            x_actual = [x for x in range(actual_size)]
-            to_plot = actual_performances[pred_ind, window_ind].mean(axis=0).mean(axis=0)[:actual_size]
-            ax.plot(x_actual, to_plot)
-
-    plt.show()
-
-
+        all_measurements = np.load(measurements_path)       # (4, 4, 2, 64, 20000, 3)
+        population_sizes = np.load(population_sizes_path)   # (4, 4, 2, 64)
+        actual_performances = np.load(performances_path)    # (4, 4, 2, 64, 20000)
 
     actual_width = 5.5
     height = actual_width
-    point_names = ['Average Rank Error', 'New Rank Error', 'Spearman Coef']
+    point_names = ['PARE', 'PNRE', 'Spearman Coef']
     metric_names = ['ZM', 'RM']
     y_ticks = [(0, .5, .1), (0, .5, .1), (0., 1.1, .2)]
     x_ticks = (0, num_slices, int(num_slices / 4))
     x_coords = np.array([x for x in range(max_pop_size)])
     color_pairs = [['#1f77b4', '#ff7f0e'], ['#2ca02c', '#d62728'], ['#9467bd', '#8c564b'], ['#e377c2', '#7f7f7f']]
 
+    fig_name = f'{prefix}evosim_all_performances_over_size'
+    plt.figure(num=fig_name, figsize=(actual_width, height))
+    ax = plt.subplot(1, 1, 1, label='Performances of Predicted Best at History Sizes')
+    plt.ylim(.93, .95)
+
+    def quantize(x_vals, y_vals, size=1000, mean=True):
+        actual_size = x_vals.shape[0]
+        slice_inds = [int((x+1)*actual_size/size) - 1 for x in range(size)]
+        new_y_vals = None
+        if mean:
+            new_y_vals = np.zeros((size, ) + y_vals.shape[1:])
+            for i in range(size):
+                this_slice = slice_inds[i]
+                prev_slice = slice_inds[i-1] if i > 0 else 0
+                new_y_vals[i] = y_vals[prev_slice:this_slice].mean(axis=0)
+        else:
+            new_y_vals = y_vals[slice_inds]
+        return np.array(slice_inds), new_y_vals
+
+    for pred_ind, pred in enumerate(prediction_scalars):
+        colors = []
+        colors.extend(color_pairs[0])
+        colors.extend(color_pairs[1])
+        c = cycler(color=colors)
+        ax.set_prop_cycle(c)
+        for window_ind, window in enumerate(windows):
+            # actual_size = int(population_sizes[pred_ind, window_ind].mean(axis=0).mean(axis=0))
+            actual_size = int(np.min(population_sizes[pred_ind, window_ind]))
+            x_actual = [x for x in range(actual_size)]
+            to_plot = actual_performances[pred_ind, window_ind].mean(axis=0).mean(axis=0)[:actual_size]
+            x_vals, y_vals = quantize(np.array(x_actual), to_plot)
+            if pred_ind == 0:
+                ax.plot(x_vals, y_vals, label=f'{window} window')
+            else:
+                ax.plot(x_vals, y_vals)
+    ax.legend(loc='lower right')
+    ax.set_xlabel('Population Size')
+    ax.set_ylabel('Final Accuracy of Predicted Best Candidate in Population')
+
+    # plt.show()
+    plt.tight_layout()
+    save_name = os.path.join(fig_dir, f'{fig_name}')
+    save_plt(save_name)
+
+    best_perf_at_slices = np.zeros((len(prediction_scalars) * len(windows), num_metrics, num_slices))
+
+    tick_nums = [x for x in range(len(windows) * len(prediction_scalars))]
+    tick_names = []
+
+    for pred_ind, pred in enumerate(prediction_scalars):
+        for window_ind, window in enumerate(windows):
+            tick_names.append(f'{pred} PES, {window} WS')
+            for metric_ind in range(num_metrics):
+                best_per_sim = np.zeros((num_sims, num_slices))
+                for sim_ind in range(num_sims):
+                    size =  int(population_sizes[pred_ind, window_ind, metric_ind, sim_ind])
+                    slice_inds = [int((x+1)*size/num_slices) - 1 for x in range(num_slices)]
+                    for index, sl in enumerate(slice_inds):
+                        best_per_sim[sim_ind,index] = actual_performances[pred_ind, window_ind, metric_ind, sim_ind, sl]
+                best_perf_at_slices[pred_ind * len(prediction_scalars) + window_ind, metric_ind] = best_per_sim.mean(axis=0)
+
+    best_slices = best_perf_at_slices.argmax(axis=0)
+    best_slices = np.swapaxes(best_slices, 0, 1)
+    x_slices = [x for x in range(num_slices)]
+    fig_name = f'{prefix}evosim_all_performances_over_slices'
+    plt.figure(num=fig_name, figsize=(actual_width, height))
+    ax = plt.subplot(1, 1, 1, label='Best Combination at Time Slices')
+    plt.yticks(tick_nums, tick_names)
+    plt.ylim(tick_nums[0], tick_nums[-1])
+    ax.plot(x_slices, best_slices)
+    ax.set_xlabel('Time Utilized as Percentage of Total Budget')
+    ax.set_ylabel('Configuration with Best Final Accuracy of Predicted Best Candidate')
+    plt.tight_layout()
+    save_name = os.path.join(fig_dir, f'{fig_name}')
+    save_plt(save_name)
+
+    # ticks = [0, 1, 2]
+    # labels = ["a", "b", "c"]
+    # plt.figure()
+    # plt.xticks(ticks, labels)
+    # plt.show()
+
+    datapoint_y_labels = ['Error', 'Error', 'Spr Coef']
+    datapoint_x_label = 'Population Size'
+
+    convergences = []
+
     for pred_ind, pred in enumerate(prediction_scalars):
         num_plots = 0
         acceleration = int(1 / pred)
-        fig_name = f'evosim_{acceleration}x_acceleration'
+        fig_name = f'{prefix}evosim_{acceleration}x_acceleration'
         plt.figure(num=fig_name, figsize=(actual_width, height))
         rows = len(windows)
         cols = num_measurements
         for window_ind, window in enumerate(windows):
+            datapoint_convergences = []
             for datapoint in range(num_measurements):
                 num_plots += 1
                 ax = plt.subplot(rows, cols, num_plots)
                 if datapoint == 0:
-                    ax.set_ylabel(f'{window} window')
+                    label_name = f'{window} window\n'
+                    if window_ind == len(windows) - 1:
+                        label_name += 'Error'
+                    ax.set_ylabel(label_name)
                 if window_ind == 0:
                     ax.xaxis.set_label_position('top')
                     ax.set_xlabel(point_names[datapoint])
-                for metric_ind in range(num_metrics):
-                    # min_pop_size = int(np.min(population_sizes[pred_ind, window_ind, metric_ind, :]))
-                    # to_plot = all_measurements[pred_ind, window_ind, metric_ind, :, :min_pop_size, datapoint].mean(axis=0)
-                    # actual_x_coords = x_coords[:min_pop_size]
-                    # c = cycler(color=[color_pairs[0][metric_ind]])
-                    # ax.set_prop_cycle(c)
-                    #
-                    # ax.plot(actual_x_coords, to_plot)
-                    # plt.yticks(np.arange(y_ticks[datapoint][0], y_ticks[datapoint][1], y_ticks[datapoint][2]))
-                    # plt.ylim((y_ticks[datapoint][0], y_ticks[datapoint][1]))
-                    for population_ind in range(num_sims):
-                        actual_pop_size = int(population_sizes[pred_ind, window_ind, metric_ind, population_ind])
-                        # print(f'actual pop {actual_pop_size}')
-                        actual_x_coords = x_coords[:actual_pop_size]
-                        to_plot = all_measurements[pred_ind, window_ind, metric_ind, population_ind, :actual_pop_size, datapoint]
-                        c = cycler(color=[color_pairs[0][metric_ind]])
-                        ax.set_prop_cycle(c)
+                if window_ind == len(windows) - 1:
+                    if datapoint != 0:
+                        ax.set_ylabel(datapoint_y_labels[datapoint])
+                    ax.set_xlabel(datapoint_x_label)
 
-                        ax.plot(actual_x_coords, to_plot)
+
+                this_datapoint_convergences = []
+                for metric_ind in range(num_metrics):
+                    min_pop_size = int(np.min(population_sizes[pred_ind, window_ind, metric_ind, :]))
+                    to_plot = all_measurements[pred_ind, window_ind, metric_ind, :, :min_pop_size, datapoint].mean(axis=0)
+                    actual_x_coords = x_coords[:min_pop_size]
+                    c = cycler(color=[color_pairs[0][metric_ind]])
+                    ax.set_prop_cycle(c)
+                    x_vals, y_vals = quantize(np.array(actual_x_coords), to_plot)
+                    ax.plot(x_vals, y_vals, label=metric_names[metric_ind] )
+                    plt.yticks(np.arange(y_ticks[datapoint][0], y_ticks[datapoint][1], y_ticks[datapoint][2]))
+                    plt.ylim((y_ticks[datapoint][0], y_ticks[datapoint][1]))
+
+
+                    converge_cutoff = int(min_pop_size / 4)
+                    converge = to_plot[-converge_cutoff:].mean(axis=0)
+                    this_datapoint_convergences.append(converge)
+                if this_datapoint_convergences[1] != 0:
+                    this_datapoint_convergences.append((this_datapoint_convergences[0]/this_datapoint_convergences[1]))
+                else:
+                    this_datapoint_convergences.append(0)
+                datapoint_convergences.extend(this_datapoint_convergences)
+                if datapoint == 0 and window_ind == 0:
+                    ax.legend(loc='upper left', prop={'size': 6})
+
+
+                    # for population_ind in range(num_sims):
+                    #     actual_pop_size = int(population_sizes[pred_ind, window_ind, metric_ind, population_ind])
+                    #     # print(f'actual pop {actual_pop_size}')
+                    #     actual_x_coords = x_coords[:actual_pop_size]
+                    #     to_plot = all_measurements[pred_ind, window_ind, metric_ind, population_ind, :actual_pop_size, datapoint]
+                    #     c = cycler(color=[color_pairs[0][metric_ind]])
+                    #     ax.set_prop_cycle(c)
+                    #
+                    #     ax.plot(actual_x_coords, to_plot)
                     # print(f'{datapoint} {to_plot[:16]}')
                     # plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
                     # plt.xlim((x_ticks[0], x_ticks[1]))
+            convergences.append((pred, window,) + tuple(datapoint_convergences))
 
 
         plt.tight_layout()
-        plt.show()
-        # save_name = os.path.join(fig_dir, f'{fig_name}')
-        # save_plt(save_name)
+        save_name = os.path.join(fig_dir, f'{fig_name}')
+        save_plt(save_name)
 
+    conv_frame = DataFrame(data=np.array(convergences))
+    col_names = ['PES', 'WS', 'ZM PARE', 'RM PARE', 'PARE Ratio', 'ZM PNRE', 'RM PNRE', 'PNRE Ratio', 'ZM Spr', 'RM Spr', 'Spr Ratio']
+    conv_frame.to_csv(os.path.join(fig_dir, f'{prefix}full_sim_convergences.csv'), header=col_names, index=False)
 
+def analyze_all_nasbench201_sim_results():
+    windows = [1, .5, .25, .001]
+    prediction_scalars = [1, .5, .25, .125]
+    analyze_nasbench201_sim_results(prediction_scalars, windows, '64_')
 
-    #
-    # def get_actual_final_accuracy_for_predicted_best(history):
-    #     if len(history) == 0:
-    #         return 0.
-    #     else:
-    #         sorted_history = sorted(history, key=lambda x: x[1][-1])
-    #         return sorted_history[-1][2]
-    #
-    # all_best_in_slices = []
-    # for configuration in data:
-    #     slices_for_history = [0 for _ in range(num_slices)]
-    #     num_histories = len(configuration[-1])
-    #     for history in configuration[-1]:
-    #         for sl in range(num_slices):
-    #             slice_as_point_in_history = int(len(history) * (sl/num_slices))
-    #             best_at_slice = get_actual_final_accuracy_for_predicted_best(history[:slice_as_point_in_history])
-    #             slices_for_history[sl] += best_at_slice
-    #         #find the one that it thinks is the best, and get its actual final accuracy, at each timestep in slices
-    #
-    #     slices_for_history = [x / num_histories for x in slices_for_history[1:]]
-    #     all_best_in_slices.append(slices_for_history)
-    #
-    # x_vals = [x for x in range(num_slices - 1)]
-    #
-    # best_configurations = []
-    # config_indexes = []
-    # for sl in range(num_slices - 1):
-    #     print(f'processing slice {sl}')
-    #     at_this_slice = [x[sl] for x in all_best_in_slices]
-    #     best_ind = int(np.argmax(at_this_slice))
-    #     best_configurations.append((data[best_ind][0], data[best_ind][1]))
-    #     config_indexes.append(best_ind)
-    #
-    # plt.subplot(1,1,1)
-    # plt.plot(x_vals, config_indexes)
-    # plt.show()
-    #
-    # y_vals = np.swapaxes(np.array(all_best_in_slices), 0, 1)
-    #
-    # num_scalars = 4
-    # for i in range(num_scalars):
-    #     plt.subplot(num_scalars, 1, i+1)
-    #     plt.plot(x_vals, y_vals[:,(i*4):((i+1)*4)])
-    #
-    # plt.show()
+    prediction_scalars = prediction_scalars[:1]
+    analyze_nasbench201_sim_results(prediction_scalars, windows, '64_extended_')
+
 
 def test_spearman():
     spcf = []
@@ -996,28 +975,73 @@ def test_spearman():
     print(np.mean(spcf))
     print(np.mean(avgd))
 
+def get_average_nasnet_arch_size():
+    # tf.compat.v1.disable_eager_execution()
+    dir_names = ['zs_standard_6x3_32e_32f']#'zs_small_3x3_16e_24f', 'zs_small_3x3_32e_24f', 'zs_medium_5x3_16e_24f', 'zs_medium_5x3_16e_32f', 'zs_medium_6x3_16e_32f',
+
+    dataset = ImageDataset.get_cifar10()
+
+    for dir_name in dir_names:
+        model_sizes = []
+        dir_path = os.path.join(evo_dir, dir_name)
+        model_names = [x for x in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, x))]
+        for model_name in model_names:
+            model = MetaModel.load(dir_path, model_name, True)
+            count = model.keras_model.count_params()
+            print(count)
+            model_sizes.append(count)
+            model.clear_model()
+            tf.keras.backend.clear_session()
+
+
+        print(model_sizes)
+        print(f'average size for {dir_name}: {np.mean(model_sizes)}')
+def get_average_nasbench_arch_size(api):
+    print(f'api size: {len(api)}')
+    flops = []
+    for i in range(len(api)):
+        flops.append(api.query_meta_info_by_index().get_compute_costs('cifar10')['params'])
+
+    print(f'mean flops: {np.mean(flops)}')
+
+
+def gen_all_graphs():
+    analyze_all_nasbench201_sim_results()
+    plt.close()
+    analyze_nasbench_archs(16)
+    plt.close()
+    analyze_nasbench_archs(100)
+    plt.close()
+    analyze_nasnet_archs()
+    plt.close()
 
 if __name__ == '__main__':
 
-    # analyze_nasbench201()
-    # multi_config_test()
+    if len(sys.argv) == 2 and sys.argv[1] == 'all':
+        gen_all_graphs()
+    else:
+        # analyze_nasbench201()
+        # multi_config_return()
 
-    # analyze_and_show_nasbench201_final_properties()
+        # analyze_and_show_nasbench201_final_properties()
 
-    # api = get_nasbench201_api()
-    # run_nasbench201_sims(api)
-    analyze_nasbench201_sim_results()
+        # api = get_nasbench201_api()
+        # run_nasbench201_sims(api)
+        # analyze_all_nasbench201_sim_results()
 
+        # get_average_nasnet_arch_size()
+        # get_average_nasbench_arch_size(api)
 
-    # analyze_nasbench_archs(16)
-    # analyze_nasbench_archs(100)
-    # analyze_nasnet_archs()
+        # analyze_nasbench_archs(16)
+        # analyze_nasbench_archs(100)
+        # analyze_nasnet_archs()
 
+        gen_all_graphs()
 
-    # analyze_stuff('zs_set_1\\zs_medium')
-    # analyze_stuff('zs_small')
-    # analyze_stuff('zs_medium')
-    # analyze_slices('zs_small')
-    # analyze_slices('zs_medium')
-    # analyze_slices('zs_set_1\\zs_medium')
+        # analyze_stuff('zs_set_1\\zs_medium')
+        # analyze_stuff('zs_small')
+        # analyze_stuff('zs_medium')
+        # analyze_slices('zs_small')
+        # analyze_slices('zs_medium')
+        # analyze_slices('zs_set_1\\zs_medium')
 
