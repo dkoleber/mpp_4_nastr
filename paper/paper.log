@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.14159265-2.6-1.40.21 (TeX Live 2020) (preloaded format=pdflatex 2020.7.1)  30 AUG 2020 19:48
+This is pdfTeX, Version 3.14159265-2.6-1.40.21 (TeX Live 2020) (preloaded format=pdflatex 2020.7.1)  31 AUG 2020 02:57
 entering extended mode
  \write18 enabled.
  %&-line parsing enabled.
@@ -968,14 +968,7 @@ ibraryexternal.code.tex
 s/tikzexternalshared.code.tex)))
 \openout3 = `paper.auxlock'.
 
- (./paper.aux
-
-LaTeX Warning: Label `table:nasnet_convergence' multiply defined.
-
-
-LaTeX Warning: Label `table:nasnet_convergence' multiply defined.
-
-)
+ (./paper.aux)
 \openout1 = `paper.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 43.
@@ -1150,15 +1143,34 @@ Underfull \hbox (badness 4205) in paragraph at lines 73--73
 []\T1/cmr/bx/n/12 Neural Ar-chi-tec-ture Search Back-
  []
 
-[1{/usr/local/texlive/2020/texmf-var/fonts/map/pdftex/updmap/pdftex.map}
+
+Underfull \vbox (badness 2080) has occurred while \output is active []
+
+ [1{/usr/local/texlive/2020/texmf-var/fonts/map/pdftex/updmap/pdftex.map}
 
 
-]
-[2] [3]
-Underfull \vbox (badness 2875) has occurred while \output is active []
+] [2]
 
- [4]
-[5] (./paper.bbl
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [3]
+[4] (../res/figures/64_evosim_all_performances_over_size.pgf)
+(../res/figures/64_evosim_all_performances_over_slices.pgf)
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [5]
+(../res/figures/64_extended_evosim_all_performances_over_size.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+
+Underfull \vbox (badness 1521) has occurred while \output is active []
+
+ [6]
+(./paper.bbl
 Underfull \hbox (badness 1005) in paragraph at lines 19--24
 []\T1/cmr/m/n/10 (+20) Tobias Domhan, Jost To-bias Sprin-gen-berg, and
  []
@@ -1204,23 +1216,52 @@ Underfull \hbox (badness 2608) in paragraph at lines 101--106
 []\T1/cmr/m/n/10 (+20) Dongzhan Zhou, Xinchi Zhou, Wen-wei Zhang,
  []
 
-) [6
+[7]) [8
 
 ] (../res/figures/nasnet_1x_acceleration.pgf)
 (../res/figures/nasnet_2x_acceleration.pgf)
 (../res/figures/nasnet_4x_acceleration.pgf)
-(../res/figures/nasnet_8x_acceleration.pgf) [7
 
-] [8
+LaTeX Warning: `!h' float specifier changed to `!ht'.
 
-]
-(../res/figures/nasbench_16_1x_acceleration.pgf)
+(../res/figures/nasnet_8x_acceleration.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+[9
+
+] (../res/figures/nasbench_16_1x_acceleration.pgf)
 (../res/figures/nasbench_16_2x_acceleration.pgf)
 (../res/figures/nasbench_16_4x_acceleration.pgf)
-(../res/figures/nasbench_16_8x_acceleration.pgf) [9
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+(../res/figures/nasbench_16_8x_acceleration.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+(../res/figures/nasbench_100_1x_acceleration.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+(../res/figures/nasbench_100_2x_acceleration.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+(../res/figures/nasbench_100_4x_acceleration.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
+
+(../res/figures/nasbench_100_8x_acceleration.pgf)
+
+LaTeX Warning: `!h' float specifier changed to `!ht'.
 
 
-] [10] [11] [12]
+LaTeX Warning: Text page 10 contains only floats.
+
+[10
+
+] [11]
 PGFPlots: reading {../res/figures/nasnet_convergences.csv}
 PGFPlots: reading {../res/figures/nasbench_16_convergences.csv}
 PGFPlots: reading {../res/figures/nasbench_100_convergences.csv}
@@ -1228,46 +1269,41 @@ PGFPlots: reading {../res/figures/nasbench_100_convergences.csv}
 
 LaTeX Warning: `!h' float specifier changed to `!ht'.
 
-[13
+[12
 
-] (../res/figures/64_evosim_all_performances_over_size.pgf)
-
-LaTeX Warning: `!h' float specifier changed to `!ht'.
-
-(../res/figures/64_evosim_all_performances_over_slices.pgf)
-PGFPlots: reading {../res/figures/64_full_sim_convergences.csv}
-
-(../res/figures/64_evosim_1x_acceleration.pgf)
-(../res/figures/64_evosim_2x_acceleration.pgf)
-(../res/figures/64_evosim_4x_acceleration.pgf)
-(../res/figures/64_evosim_8x_acceleration.pgf) [14] [15] [16] [17] [18]
-[19] [20] [21] (../res/figures/64_extended_evosim_1x_acceleration.pgf)
-(../res/figures/64_extended_evosim_all_performances_over_size.pgf)
-(../res/figures/64_extended_evosim_all_performances_over_slices.pgf) [22
 
 ]
-[23] [24] [25] [26]
-Package atveryend Info: Empty hook `BeforeClearDocument' on input line 691.
-Package atveryend Info: Empty hook `AfterLastShipout' on input line 691.
+PGFPlots: reading {../res/figures/64_full_sim_convergences.csv}
+ [13] (../res/figures/64_evosim_1x_acceleration.pgf)
+(../res/figures/64_evosim_2x_acceleration.pgf)
+(../res/figures/64_evosim_4x_acceleration.pgf)
+(../res/figures/64_evosim_8x_acceleration.pgf) [14]
+(../res/figures/64_extended_evosim_all_performances_over_slices.pgf)
+(../res/figures/64_extended_evosim_1x_acceleration.pgf) [15
+
+
+
+
+] [16
+
+]
+Package atveryend Info: Empty hook `BeforeClearDocument' on input line 743.
+Package atveryend Info: Empty hook `AfterLastShipout' on input line 743.
  (./paper.aux)
-Package atveryend Info: Executing hook `AtVeryEndDocument' on input line 691.
-Package atveryend Info: Executing hook `AtEndAfterFileList' on input line 691.
+Package atveryend Info: Executing hook `AtVeryEndDocument' on input line 743.
+Package atveryend Info: Executing hook `AtEndAfterFileList' on input line 743.
 Package rerunfilecheck Info: File `paper.out' has not changed.
-(rerunfilecheck)             Checksum: C92CF6AE77D3E0704E5B780BC9C96D69;1673.
-
-
-LaTeX Warning: There were multiply-defined labels.
-
-Package atveryend Info: Empty hook `AtVeryVeryEnd' on input line 691.
+(rerunfilecheck)             Checksum: D1E5423BA8B646DF0FDA574AB8570338;1597.
+Package atveryend Info: Empty hook `AtVeryVeryEnd' on input line 743.
  ) 
 Here is how much of TeX's memory you used:
- 32790 strings out of 480471
- 810350 string characters out of 5899396
- 1752474 words of memory out of 5000000
- 47956 multiletter control sequences out of 15000+600000
- 552947 words of font info for 139 fonts, out of 8000000 for 9000
+ 32813 strings out of 480471
+ 811292 string characters out of 5899396
+ 2812786 words of memory out of 5000000
+ 47969 multiletter control sequences out of 15000+600000
+ 553951 words of font info for 142 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 68i,10n,98p,717b,735s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 68i,10n,98p,717b,851s stack positions out of 5000i,500n,10000p,200000b,80000s
 {/usr/local/texlive/2020/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc}
 {/usr/local/texlive/2020/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}<
 /usr/local/texlive/2020/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></
@@ -1281,16 +1317,17 @@ exlive/2020/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/local/tex
 live/2020/texmf-dist/fonts/type1/public/cm-super/sfbx1000.pfb></usr/local/texli
 ve/2020/texmf-dist/fonts/type1/public/cm-super/sfbx1200.pfb></usr/local/texlive
 /2020/texmf-dist/fonts/type1/public/cm-super/sfbx1440.pfb></usr/local/texlive/2
-020/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb></usr/local/texlive/202
-0/texmf-dist/fonts/type1/public/cm-super/sfrm1200.pfb></usr/local/texlive/2020/
-texmf-dist/fonts/type1/public/cm-super/sfrm1728.pfb></usr/local/texlive/2020/te
-xmf-dist/fonts/type1/public/cm-super/sfti1000.pfb></usr/local/texlive/2020/texm
-f-dist/fonts/type1/public/cm-super/sftt1000.pfb></usr/local/texlive/2020/texmf-
-dist/fonts/type1/public/cm-super/sftt1200.pfb>
-Output written on paper.pdf (26 pages, 552454 bytes).
+020/texmf-dist/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/202
+0/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb></usr/local/texlive/2020/
+texmf-dist/fonts/type1/public/cm-super/sfrm1200.pfb></usr/local/texlive/2020/te
+xmf-dist/fonts/type1/public/cm-super/sfrm1728.pfb></usr/local/texlive/2020/texm
+f-dist/fonts/type1/public/cm-super/sfti1000.pfb></usr/local/texlive/2020/texmf-
+dist/fonts/type1/public/cm-super/sftt1000.pfb></usr/local/texlive/2020/texmf-di
+st/fonts/type1/public/cm-super/sftt1200.pfb>
+Output written on paper.pdf (16 pages, 1144785 bytes).
 PDF statistics:
- 410 PDF objects out of 1000 (max. 8388607)
- 361 compressed objects within 4 object streams
- 92 named destinations out of 1000 (max. 500000)
- 28869 words of extra memory for PDF output out of 29859 (max. 10000000)
+ 395 PDF objects out of 1000 (max. 8388607)
+ 355 compressed objects within 4 object streams
+ 85 named destinations out of 1000 (max. 500000)
+ 29373 words of extra memory for PDF output out of 29859 (max. 10000000)
 

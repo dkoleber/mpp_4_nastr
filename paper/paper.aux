@@ -31,13 +31,13 @@
 \citation{peephole}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Neural Architecture Search Background}{1}{subsection.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Related Work}{1}{subsection.1.2}\protected@file@percent }
 \citation{hparam_opt_1}
 \citation{bayesian_pred}
 \citation{vsvr_pred}
 \citation{pnas}
 \citation{pnas}
 \citation{nasbench201}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Related Work}{2}{subsection.1.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {2}Approach}{2}{section.2}\protected@file@percent }
 \citation{nasbench201}
 \citation{nasnet}
@@ -45,15 +45,23 @@
 \@writefile{toc}{\contentsline {section}{\numberline {3}Experiments}{3}{section.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Stochastic Search Experiments}{3}{subsection.3.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.1}Experiment Details}{3}{subsubsection.3.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.2}Analysis}{3}{subsubsection.3.1.2}\protected@file@percent }
 \citation{amoebanet}
-\citation{amoebanet}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Stochastic Simulation: PNRE Correlation with Rank}}{4}{table.1}\protected@file@percent }
+\newlabel{table:rank_error_corr}{{1}{4}{Stochastic Simulation: PNRE Correlation with Rank}{table.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.2}Analysis}{4}{subsubsection.3.1.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Evolutionary Search Experiments}{4}{subsection.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.1}Experiment Details}{4}{subsubsection.3.2.1}\protected@file@percent }
+\citation{amoebanet}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.1}Experiment Details}{5}{subsubsection.3.2.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.2}Analysis}{5}{subsubsection.3.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Ablation Study: Impact of Windows without Early Stopping}{5}{subsection.3.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Analysis}{5}{subsubsection.3.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4}Discussion and Future Work}{5}{section.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces NASBench 201 Evolution Simulation: Performances vs History Size. Simulations with different prediction epoch scalars are identified by different stopping points. A prediction epoch scalar of .125 generally outperforms .25, but a PES of 1 outperforms all others.}}{5}{figure.1}\protected@file@percent }
+\newlabel{fig:nasbench_best_perf_vs_size}{{1}{5}{NASBench 201 Evolution Simulation: Performances vs History Size. Simulations with different prediction epoch scalars are identified by different stopping points. A prediction epoch scalar of .125 generally outperforms .25, but a PES of 1 outperforms all others}{figure.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces NASBench 201 Evolution Simulation: Time Utilized vs Best Configuration. PES 1 and WS 1 outperforms other configurations for approximately 75\% of the time budget, and configurations with PES 1 and any window scalar outperform other configurations for approximately 90\% of the time budget.}}{6}{figure.2}\protected@file@percent }
+\newlabel{fig:nasbench_best_perf_vs_slice}{{2}{6}{NASBench 201 Evolution Simulation: Time Utilized vs Best Configuration. PES 1 and WS 1 outperforms other configurations for approximately 75\% of the time budget, and configurations with PES 1 and any window scalar outperform other configurations for approximately 90\% of the time budget}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Ablation Study: The Impact of Windows without Early Stopping}{6}{subsection.3.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces NASBench 201 Extended Evolution Simulation: Performances vs History Size}}{6}{figure.3}\protected@file@percent }
+\newlabel{fig:evo_ext_nasbench_all_perfs}{{3}{6}{NASBench 201 Extended Evolution Simulation: Performances vs History Size}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Analysis}{6}{subsubsection.3.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Discussion and Future Work}{6}{section.4}\protected@file@percent }
 \bibdata{reference}
 \bibcite{vsvr_pred}{{1}{}{{Baker et~al.}}{{Baker, Gupta, Raskar, and Naik}}}
 \bibcite{peephole}{{2}{2017}{{Deng et~al.}}{{Deng, Yan, and Lin}}}
@@ -72,58 +80,57 @@
 \bibcite{econas}{{15}{2020}{{Zhou et~al.}}{{Zhou, Zhou, Zhang, Loy, Yi, Zhang, and Ouyang}}}
 \bibcite{rl_nas}{{16}{}{{Zoph and Le}}{{}}}
 \bibcite{nasnet}{{17}{2018}{{Zoph et~al.}}{{Zoph, Vasudevan, Shlens, and Le}}}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces NASNet Simulation with 1x Acceleration}}{7}{figure.1}\protected@file@percent }
-\newlabel{fig:nasnet_1x_acceleration}{{1}{7}{NASNet Simulation with 1x Acceleration}{figure.1}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {A}Appendix}{7}{appendix.A}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Stochastic Search Results}{7}{subsection.A.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.1}NASNet Simulations}{7}{subsubsection.A.1.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces NASNet Simulation with 2x Acceleration}}{7}{figure.2}\protected@file@percent }
-\newlabel{fig:nasnet_2x_acceleration}{{2}{7}{NASNet Simulation with 2x Acceleration}{figure.2}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces NASNet Simulation with 4x Acceleration}}{7}{figure.3}\protected@file@percent }
-\newlabel{fig:nasnet_4x_acceleration}{{3}{7}{NASNet Simulation with 4x Acceleration}{figure.3}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces NASNet Simulation with 8x Acceleration}}{8}{figure.4}\protected@file@percent }
-\newlabel{fig:nasnet_8x_acceleration}{{4}{8}{NASNet Simulation with 8x Acceleration}{figure.4}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.2}NASBench201 Simulations}{9}{subsubsection.A.1.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces NASBench201 Simulation with 1x Acceleration}}{9}{figure.5}\protected@file@percent }
-\newlabel{fig:nasbench_1x_acceleration}{{5}{9}{NASBench201 Simulation with 1x Acceleration}{figure.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces NASBench201 Simulation with 2x Acceleration}}{10}{figure.6}\protected@file@percent }
-\newlabel{fig:nasbench_2x_acceleration}{{6}{10}{NASBench201 Simulation with 2x Acceleration}{figure.6}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces NASBench201 Simulation with 4x Acceleration}}{11}{figure.7}\protected@file@percent }
-\newlabel{fig:nasbench_4x_acceleration}{{7}{11}{NASBench201 Simulation with 4x Acceleration}{figure.7}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces NASBench201 Simulation with 8x Acceleration}}{12}{figure.8}\protected@file@percent }
-\newlabel{fig:nasbench_8x_acceleration}{{8}{12}{NASBench201 Simulation with 8x Acceleration}{figure.8}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.3}Simulation Points of Convergence}{13}{subsubsection.A.1.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces NASNet Points of Convergence}}{13}{table.1}\protected@file@percent }
-\newlabel{table:nasnet_convergence}{{1}{13}{NASNet Points of Convergence}{table.1}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces NASBench201 16p Points of Convergence}}{13}{table.2}\protected@file@percent }
-\newlabel{table:nasnet_convergence}{{2}{13}{NASBench201 16p Points of Convergence}{table.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces NASBench201 100p Points of Convergence}}{14}{table.3}\protected@file@percent }
-\newlabel{table:nasnet_convergence}{{3}{14}{NASBench201 100p Points of Convergence}{table.3}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.4}Rank Error vs Rank Correlations}{14}{subsubsection.A.1.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Rank Error Correlation with Rank, Averaged over Subpopulation, Prediction Window Scalar, and Evaluation Metric}}{14}{table.4}\protected@file@percent }
-\newlabel{table:rank_error_corr}{{4}{14}{Rank Error Correlation with Rank, Averaged over Subpopulation, Prediction Window Scalar, and Evaluation Metric}{table.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Aging Tournament Search}{14}{subsection.A.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces NASBench201 Simulation Performances vs History Size}}{15}{figure.9}\protected@file@percent }
-\newlabel{fig:nasbench_best_perf_vs_size}{{9}{15}{NASBench201 Simulation Performances vs History Size}{figure.9}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces NASBench201 Simulation Performances vs Time Slice}}{16}{figure.10}\protected@file@percent }
-\newlabel{fig:nasbench_best_perf_vs_slice}{{10}{16}{NASBench201 Simulation Performances vs Time Slice}{figure.10}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces NASBench201 Points of Convergence}}{17}{table.5}\protected@file@percent }
-\newlabel{table:full_sim_nasnet_convergence}{{5}{17}{NASBench201 Points of Convergence}{table.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces NASBench201 Simulation with No Acceleration}}{18}{figure.11}\protected@file@percent }
-\newlabel{fig:evo_nasbench_1x_acceleration}{{11}{18}{NASBench201 Simulation with No Acceleration}{figure.11}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces NASBench201 Simulation with 2x Acceleration}}{19}{figure.12}\protected@file@percent }
-\newlabel{fig:evo_nasbench_2x_acceleration}{{12}{19}{NASBench201 Simulation with 2x Acceleration}{figure.12}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces NASBench201 Simulation with 4x Acceleration}}{20}{figure.13}\protected@file@percent }
-\newlabel{fig:evo_nasbench_4x_acceleration}{{13}{20}{NASBench201 Simulation with 4x Acceleration}{figure.13}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces NASBench201 Simulation with 8x Acceleration}}{21}{figure.14}\protected@file@percent }
-\newlabel{fig:evo_nasbench_8x_acceleration}{{14}{21}{NASBench201 Simulation with 8x Acceleration}{figure.14}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.2.1}Aging Tournament Ablation Study}{22}{subsubsection.A.2.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces NASBench201 Simulation with No Acceleration}}{23}{figure.15}\protected@file@percent }
-\newlabel{fig:evo_ext_nasbench_1x_acceleration}{{15}{23}{NASBench201 Simulation with No Acceleration}{figure.15}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces NASBench201 Simulation with No Acceleration}}{24}{figure.16}\protected@file@percent }
-\newlabel{fig:evo_ext_nasbench_all_perfs}{{16}{24}{NASBench201 Simulation with No Acceleration}{figure.16}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces NASBench201 Simulation with No Acceleration}}{25}{figure.17}\protected@file@percent }
-\newlabel{fig:evo_ext_nasbench_best_at_slice}{{17}{25}{NASBench201 Simulation with No Acceleration}{figure.17}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}NASNet Population Details}{26}{subsection.A.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces NASNet Subpopulation Configurations}}{26}{table.6}\protected@file@percent }
-\newlabel{table:nasnet_details}{{6}{26}{NASNet Subpopulation Configurations}{table.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Appendix}{8}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Stochastic Search Results}{8}{subsection.A.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.1}NASNet Simulations}{9}{subsubsection.A.1.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces NASNet 16p: 1 Prediction Epoch Scalar}}{9}{figure.4}\protected@file@percent }
+\newlabel{fig:nasnet_1x_acceleration}{{4}{9}{NASNet 16p: 1 Prediction Epoch Scalar}{figure.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces NASNet 16p: 0.5 Prediction Epoch Scalar}}{9}{figure.5}\protected@file@percent }
+\newlabel{fig:nasnet_2x_acceleration}{{5}{9}{NASNet 16p: 0.5 Prediction Epoch Scalar}{figure.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces NASNet 16p: 0.25 Prediction Epoch Scalar}}{9}{figure.6}\protected@file@percent }
+\newlabel{fig:nasnet_4x_acceleration}{{6}{9}{NASNet 16p: 0.25 Prediction Epoch Scalar}{figure.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces NASNet 16p: 0.125 Prediction Epoch Scalar}}{9}{figure.7}\protected@file@percent }
+\newlabel{fig:nasnet_8x_acceleration}{{7}{9}{NASNet 16p: 0.125 Prediction Epoch Scalar}{figure.7}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.2}NASBench201 Simulations}{10}{subsubsection.A.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces NASBench 201 16p: 1 Prediction Epoch Scalar}}{10}{figure.8}\protected@file@percent }
+\newlabel{fig:nasbench_16_1x_acceleration}{{8}{10}{NASBench 201 16p: 1 Prediction Epoch Scalar}{figure.8}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces NASBench 201 16p: 0.5 Prediction Epoch Scalar}}{10}{figure.9}\protected@file@percent }
+\newlabel{fig:nasbench_16_2x_acceleration}{{9}{10}{NASBench 201 16p: 0.5 Prediction Epoch Scalar}{figure.9}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces NASBench 201 16p: 0.25 Prediction Epoch Scalar}}{10}{figure.10}\protected@file@percent }
+\newlabel{fig:nasbench_16_4x_acceleration}{{10}{10}{NASBench 201 16p: 0.25 Prediction Epoch Scalar}{figure.10}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces NASBench 201 16p: 0.125 Prediction Epoch Scalar}}{10}{figure.11}\protected@file@percent }
+\newlabel{fig:nasbench_16_8x_acceleration}{{11}{10}{NASBench 201 16p: 0.125 Prediction Epoch Scalar}{figure.11}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces NASBench 201 100p: 1 Prediction Epoch Scalar}}{11}{figure.12}\protected@file@percent }
+\newlabel{fig:nasbench_100_1x_acceleration}{{12}{11}{NASBench 201 100p: 1 Prediction Epoch Scalar}{figure.12}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces NASBench 201 100p: 0.5 Prediction Epoch Scalar}}{11}{figure.13}\protected@file@percent }
+\newlabel{fig:nasbench_100_2x_acceleration}{{13}{11}{NASBench 201 100p: 0.5 Prediction Epoch Scalar}{figure.13}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces NASBench 201 100p: 0.25 Prediction Epoch Scalar}}{11}{figure.14}\protected@file@percent }
+\newlabel{fig:nasbench_100_4x_acceleration}{{14}{11}{NASBench 201 100p: 0.25 Prediction Epoch Scalar}{figure.14}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces NASBench 201 100p: 0.125 Prediction Epoch Scalar}}{11}{figure.15}\protected@file@percent }
+\newlabel{fig:nasbench_100_8x_acceleration}{{15}{11}{NASBench 201 100p: 0.125 Prediction Epoch Scalar}{figure.15}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.1.3}Stochastic Simulation Points of Convergence}{12}{subsubsection.A.1.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces NASNet 16p: Points of Convergence}}{12}{table.2}\protected@file@percent }
+\newlabel{table:nasbench_16_convergence}{{2}{12}{NASNet 16p: Points of Convergence}{table.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces NASBench 201 16p: Points of Convergence}}{12}{table.3}\protected@file@percent }
+\newlabel{table:nasnet_convergence}{{3}{12}{NASBench 201 16p: Points of Convergence}{table.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces NASBench 201 100p: Points of Convergence}}{13}{table.4}\protected@file@percent }
+\newlabel{table:nasbench_100_convergence}{{4}{13}{NASBench 201 100p: Points of Convergence}{table.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Aging Tournament Search}{13}{subsection.A.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces NASBench 201: Points of Convergence}}{13}{table.5}\protected@file@percent }
+\newlabel{table:full_sim_nasnet_convergence}{{5}{13}{NASBench 201: Points of Convergence}{table.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces NASBench 201: 1 Prediction Epoch Scalar}}{14}{figure.16}\protected@file@percent }
+\newlabel{fig:evo_nasbench_1x_acceleration}{{16}{14}{NASBench 201: 1 Prediction Epoch Scalar}{figure.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces NASBench 201: 0.5 Prediction Epoch Scalar}}{14}{figure.17}\protected@file@percent }
+\newlabel{fig:evo_nasbench_2x_acceleration}{{17}{14}{NASBench 201: 0.5 Prediction Epoch Scalar}{figure.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces NASBench 201: 0.25 Prediction Epoch Scalar}}{14}{figure.18}\protected@file@percent }
+\newlabel{fig:evo_nasbench_4x_acceleration}{{18}{14}{NASBench 201: 0.25 Prediction Epoch Scalar}{figure.18}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces NASBench 201: 0.125 Prediction Epoch Scalar}}{14}{figure.19}\protected@file@percent }
+\newlabel{fig:evo_nasbench_8x_acceleration}{{19}{14}{NASBench 201: 0.125 Prediction Epoch Scalar}{figure.19}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.2.1}Aging Tournament Ablation Study}{15}{subsubsection.A.2.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces NASBench 201: Time Utilized vs Best Configuration}}{15}{figure.20}\protected@file@percent }
+\newlabel{fig:evo_ext_nasbench_best_at_slice}{{20}{15}{NASBench 201: Time Utilized vs Best Configuration}{figure.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces NASBench 201: 1 Prediction Epoch Scalar}}{15}{figure.21}\protected@file@percent }
+\newlabel{fig:evo_ext_nasbench_1x_acceleration}{{21}{15}{NASBench 201: 1 Prediction Epoch Scalar}{figure.21}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}NASNet Population Details}{16}{subsection.A.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces NASNet Subpopulation Configurations}}{16}{table.6}\protected@file@percent }
+\newlabel{table:nasnet_details}{{6}{16}{NASNet Subpopulation Configurations}{table.6}{}}

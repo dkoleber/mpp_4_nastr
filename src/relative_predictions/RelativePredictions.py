@@ -288,6 +288,8 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
     x_ticks = (0, num_models, int(num_models / 4))
     x_models = [x for x in range(num_models)]
     color_pairs = [['#1f77b4', '#ff7f0e'], ['#2ca02c', '#d62728'], ['#9467bd', '#8c564b'], ['#e377c2', '#7f7f7f']]
+    datapoint_y_labels = ['Error', 'Error', 'Spr Coef']
+    datapoint_x_label = 'Population Size'
 
     convergences = []
 
@@ -309,6 +311,19 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
                     ax.xaxis.set_label_position('top')
                     ax.set_xlabel(point_names[datapoint])
 
+                if datapoint == 0:
+                    label_name = f'{window} window\n'
+                    if window_ind == len(chosen_windows) - 1:
+                        label_name += 'Error'
+                    ax.set_ylabel(label_name)
+                if window_ind == 0:
+                    ax.xaxis.set_label_position('top')
+                    ax.set_xlabel(point_names[datapoint])
+                if window_ind == len(chosen_windows) - 1:
+                    if datapoint != 0:
+                        ax.set_ylabel(datapoint_y_labels[datapoint])
+                    ax.set_xlabel(datapoint_x_label)
+
                 converge_cutoff = int(num_models/4)
                 converge = metrics[pred_ind, window_ind, :, datapoint, -converge_cutoff:, :].mean(axis=0).mean(axis=0)
 
@@ -323,12 +338,16 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
                         to_plot = metrics[pred_ind,window_ind,population_ind,datapoint,:,metric_ind]
                         c = cycler(color = [color_pairs[0][metric_ind]])
                         ax.set_prop_cycle(c)
-
-                        ax.plot(x_models, to_plot)
+                        if population_ind == 0:
+                            ax.plot(x_models, to_plot,label=metric_names[metric_ind])
+                        else:
+                            ax.plot(x_models, to_plot)
                         plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
                         plt.xlim((x_ticks[0], x_ticks[1]))
                         plt.yticks(np.arange(y_ticks[datapoint][0], y_ticks[datapoint][1], y_ticks[datapoint][2]))
                         plt.ylim((y_ticks[datapoint][0], y_ticks[datapoint][1]))
+                if datapoint == 0 and window_ind == 0:
+                    ax.legend(loc='upper left', prop={'size': 6})
             convergences.append((pred, window,)+tuple(datapoint_convergences))
 
         plt.tight_layout()
@@ -338,11 +357,6 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
 
 
     conv_frame = DataFrame(data=np.array(convergences))
-    # col_names = ['Prediction Epoch', 'Window']
-    # for datapoint_name in point_names:
-    #     for metric_name in metric_names:
-    #         col_names.append(f'{datapoint_name} {metric_name}')
-    # col_names = [remove_lowercase(x) for x in col_names]
     col_names = ['PES', 'WS', 'ZM PARE', 'RM PARE', 'PARE Ratio', 'ZM PNRE', 'RM PNRE', 'PNRE Ratio', 'ZM Spr', 'RM Spr', 'Spr Ratio']
     conv_frame.to_csv(os.path.join(fig_dir, f'{prefix}convergences.csv'), header=col_names, index=False)
 
@@ -370,9 +384,6 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
             to_plot = rank_corrs[pred_ind, :, :, metric_ind].mean(axis=1)
             c = cycler(color=[color_pairs[0][metric_ind]])
             ax.set_prop_cycle(c)
-
-
-
             ax.plot(chosen_windows, to_plot)
 
     plt.tight_layout(pad=.1)
@@ -381,7 +392,6 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
 
     l = (' & ').join([str(np.round(x, 3)) for x in rank_corrs.mean(axis=3).mean(axis=2).mean(axis=1).tolist()])
     print(f'avg at epochs: {l}')
-
 def analyze_nasnet_archs():
     def load_accuracies(dir_name):
 
@@ -401,7 +411,6 @@ def analyze_nasnet_archs():
     accuracies = [load_accuracies(x) for x in dir_names]
 
     _analyze_multiple(accuracies, prefix='nasnet_')
-
 def analyze_nasbench_archs(sample_size=16):
     final_accuracies_filename = res_dir / 'nas_bench_201_cifar10_test_accuracies_200.npy'
     if not os.path.exists(final_accuracies_filename):
@@ -629,7 +638,6 @@ def run_nas_api_evo(api, prediction_epoch_scalar, window_scalar, time_budget, us
     # establish initial population
     initial_population_indexes = random_exclusive(num_api_archs, population_size)
     for i in range(population_size):
-        # print(f'evaluating initial population {i}/{population_size}')
         arch = api.query_meta_info_by_index(initial_population_indexes[i]).arch_str
         if not eval_and_add_new_arch(arch):
             print('ran out of time during initial population evaluation')
@@ -650,14 +658,6 @@ def run_nas_api_evo(api, prediction_epoch_scalar, window_scalar, time_budget, us
         if not eval_and_add_new_arch(new_arch):
             break
         del population[0]
-
-    # sorted_history = sorted(history, key=lambda x: x[1][-1])
-
-    # best_arch = sorted_history[-1][0]
-    # best_arch_performance = sorted_history[-1][1]
-    # best_arch_final_performance = api.query_by_index(api.query_index_by_arch(best_arch), 'cifar10', '200')[888].get_eval('ori-test')['accuracy']
-
-    # print(f'completed evaluation with {len(history)} candidates. best accuracy: {best_arch_final_performance}, arch: {best_arch}')
 
     return history
 def get_full_sim_output_filename(sim_name, prediction_scalar, window):
@@ -805,7 +805,7 @@ def analyze_nasbench201_sim_results(prediction_scalars, windows, prefix):
             for i in range(size):
                 this_slice = slice_inds[i]
                 prev_slice = slice_inds[i-1] if i > 0 else 0
-                new_y_vals[i] = y_vals[prev_slice:this_slice].mean(axis=0)
+                new_y_vals[i] = y_vals[prev_slice:this_slice].mean(axis=0) if prev_slice != this_slice else 0
         else:
             new_y_vals = y_vals[slice_inds]
         return np.array(slice_inds), new_y_vals
@@ -867,12 +867,6 @@ def analyze_nasbench201_sim_results(prediction_scalars, windows, prefix):
     save_name = os.path.join(fig_dir, f'{fig_name}')
     save_plt(save_name)
 
-    # ticks = [0, 1, 2]
-    # labels = ["a", "b", "c"]
-    # plt.figure()
-    # plt.xticks(ticks, labels)
-    # plt.show()
-
     datapoint_y_labels = ['Error', 'Error', 'Spr Coef']
     datapoint_x_label = 'Population Size'
 
@@ -928,21 +922,7 @@ def analyze_nasbench201_sim_results(prediction_scalars, windows, prefix):
                 if datapoint == 0 and window_ind == 0:
                     ax.legend(loc='upper left', prop={'size': 6})
 
-
-                    # for population_ind in range(num_sims):
-                    #     actual_pop_size = int(population_sizes[pred_ind, window_ind, metric_ind, population_ind])
-                    #     # print(f'actual pop {actual_pop_size}')
-                    #     actual_x_coords = x_coords[:actual_pop_size]
-                    #     to_plot = all_measurements[pred_ind, window_ind, metric_ind, population_ind, :actual_pop_size, datapoint]
-                    #     c = cycler(color=[color_pairs[0][metric_ind]])
-                    #     ax.set_prop_cycle(c)
-                    #
-                    #     ax.plot(actual_x_coords, to_plot)
-                    # print(f'{datapoint} {to_plot[:16]}')
-                    # plt.xticks(np.arange(x_ticks[0], x_ticks[1], x_ticks[2]))
-                    # plt.xlim((x_ticks[0], x_ticks[1]))
             convergences.append((pred, window,) + tuple(datapoint_convergences))
-
 
         plt.tight_layout()
         save_name = os.path.join(fig_dir, f'{fig_name}')
@@ -1000,9 +980,11 @@ def get_average_nasbench_arch_size(api):
     print(f'api size: {len(api)}')
     flops = []
     for i in range(len(api)):
-        flops.append(api.query_meta_info_by_index().get_compute_costs('cifar10')['params'])
+        print(i)
+        flops.append(api.query_meta_info_by_index(i).get_compute_costs('cifar10')['params'])
 
     print(f'mean flops: {np.mean(flops)}')
+    # should return 0.398554 , which is a number of megabytes, presumably for float32 parameters
 
 
 def gen_all_graphs():
