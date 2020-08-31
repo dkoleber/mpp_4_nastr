@@ -51,14 +51,12 @@ def random_exclusive(max_val, n):
 def se(val1, val2):
     return ((val1 - val2)**2)
 
-
 def ae(val1, val2):
     return abs(val1 - val2)
 
 
 def get_ranks(measurements):
     return np.argsort(np.argsort(measurements, axis=0), axis=0)
-
 
 def spearman_coef_distinct(rankings_predicted, rankings_actual):
     n = len(rankings_predicted)
@@ -69,7 +67,6 @@ def spearman_coef_distinct(rankings_predicted, rankings_actual):
     bottom = n * (n**2 - 1)
 
     return 1. - (top/bottom)
-
 
 def spearman_coef(rankings_predicted, rankings_actual):
     n = len(rankings_predicted)
@@ -84,7 +81,6 @@ def spearman_coef(rankings_predicted, rankings_actual):
         return 1.
 
     return cov / (std_pred*std_act)
-
 
 def multi_model_test(dir_name = 'static_analysis_samples', num_models=32, hparams=None, emb_queue=None):
     hyperparameters = Hyperparameters() if hparams is None else hparams
@@ -155,7 +151,7 @@ def rm_rank(accuracies, window):
     result = int(np.argmax(mean_ranks))
     return result, get_ranks(mean_ranks)
 
-def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
+def _stochastic_simulation(accuracies, num_simulations = 32, prefix=''):
 
     num_experiments = len(accuracies)
     num_epochs = [len(x[0]) for x in accuracies]
@@ -276,9 +272,7 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
         metrics = np.load(sim_paths[0])
         rank_corrs = np.load(sim_paths[1])
     num_populations = metrics.shape[2]
-    # print('finished loading')
-    # print(f'metrics shape: {metrics.shape}') # dims = (prediction epochs, windows, population group, datapoint, steps, metric type)
-    # print(f'rank corrs shape: {rank_corrs.shape}') # dims = (prediction epochs, windows, population group, metric type)
+
 
     actual_width = 5.5
     height = actual_width
@@ -392,7 +386,7 @@ def _analyze_multiple(accuracies, num_simulations = 32, prefix=''):
 
     l = (' & ').join([str(np.round(x, 3)) for x in rank_corrs.mean(axis=3).mean(axis=2).mean(axis=1).tolist()])
     print(f'avg at epochs: {l}')
-def analyze_nasnet_archs():
+def stochastic_simulation_nasnet():
     def load_accuracies(dir_name):
 
         dir_path = os.path.join(evo_dir, dir_name)
@@ -410,8 +404,8 @@ def analyze_nasnet_archs():
 
     accuracies = [load_accuracies(x) for x in dir_names]
 
-    _analyze_multiple(accuracies, prefix='nasnet_')
-def analyze_nasbench_archs(sample_size=16):
+    _stochastic_simulation(accuracies, prefix='nasnet_')
+def stochastic_simulation_nasbench(sample_size=16):
     final_accuracies_filename = res_dir / 'nas_bench_201_cifar10_test_accuracies_200.npy'
     if not os.path.exists(final_accuracies_filename):
         print(f'missing path: {final_accuracies_filename}')
@@ -419,7 +413,7 @@ def analyze_nasbench_archs(sample_size=16):
         generate_nasbench201_final_properties_file(api, final_accuracies_filename)
 
     accuracies = [np.load(final_accuracies_filename)[x*sample_size:(x+1)*sample_size, :, 0] for x in range(4)]
-    _analyze_multiple(accuracies, prefix=f'nasbench_{sample_size}_')
+    _stochastic_simulation(accuracies, prefix=f'nasbench_{sample_size}_')
 
 def train_nasnet_archs():
 
@@ -436,10 +430,17 @@ def train_nasnet_archs():
         params.parameters['BATCH_SIZE'] = 16
         return params
 
-    def medium_params(epochs:int) -> Hyperparameters:
+    def standard_params(epochs:int) -> Hyperparameters:
         params = default_params(epochs)
         params.parameters['TARGET_FILTER_DIMS'] = 32
         params.parameters['CELL_STACKS'] = [6, 1]
+        params.parameters['CELL_LAYERS'] = 3
+        return params
+
+    def medium_params(epochs:int, filters=32) -> Hyperparameters:
+        params = default_params(epochs)
+        params.parameters['TARGET_FILTER_DIMS'] = filters
+        params.parameters['CELL_STACKS'] = [5, 1]
         params.parameters['CELL_LAYERS'] = 3
         return params
 
@@ -476,13 +477,12 @@ def train_nasnet_archs():
         m.populate_with_nasnet_metacells()
         long_embeddings.append(m.get_embedding())
 
-    # multi_model_test('zs_small', num_models=num_models, hparams=small_params(32), emb_queue=embeddings)
-    # multi_model_test('zs_medium', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
-    # multi_model_test('zs_tiny', num_models=num_models, hparams=tiny_params(32), emb_queue=embeddings)
-    # multi_model_test('zs_standard_6x3_32e_32f', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
-    # multi_model_test('zs_medium_6x3_16e_32f', num_models=num_models, hparams=medium_params(16), emb_queue=embeddings)
     multi_model_test('zs_small_3x3_16e_24f', num_models=num_models, hparams=small_params(16), emb_queue=embeddings)
-    multi_model_test('zs_long_16', num_models=num_models, hparams=long_params(), emb_queue=long_embeddings)
+    multi_model_test('zs_small_3x3_32e_24f', num_models=num_models, hparams=small_params(32), emb_queue=embeddings)
+    multi_model_test('zs_medium_5x3_16e_24f', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
+    multi_model_test('zs_medium_6x3_16e_32f', num_models=num_models, hparams=medium_params(16, 32), emb_queue=embeddings)
+    multi_model_test('zs_standard_6x3_16e_32f', num_models=num_models, hparams=medium_params(16), emb_queue=embeddings)
+    multi_model_test('zs_standard_6x3_32e_32f', num_models=num_models, hparams=medium_params(32), emb_queue=embeddings)
 
 def get_nasbench201_api():
     file_name = 'NAS-Bench-201-v1_1-096897.pth'
@@ -518,7 +518,6 @@ def generate_nasbench201_final_properties_file(api, output_filename):
 
     print(f'shape: {np.array(all_props).shape}')
     np.save(output_filename, all_props)
-    
 def analyze_nasbench201_final_properties(output_filename, show = False):
     props = np.load(output_filename)
 
@@ -684,7 +683,7 @@ def test_nasbench201(api, time_budget, num_sims, sim_name, use_zscore, predictio
 
                 with open(filename, 'w+') as fl:
                     json.dump(histories, fl, indent=4)
-def run_nasbench201_sims(api):
+def evolution_simulation_nasbench(api):
     final_accuracies_filename = os.path.join(res_dir, 'nas_bench_201_cifar10_test_accuracies_200.npy')
     if not os.path.exists(final_accuracies_filename):
         generate_nasbench201_final_properties_file(api, final_accuracies_filename)
@@ -695,16 +694,13 @@ def run_nasbench201_sims(api):
     windows = [1, .5, .25, .001]
     prediction_scalars = [1, .5, .25, .125]
 
-    # test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_zscore', True, prediction_scalars, windows)
-
-    # test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_rank', False, prediction_scalars, windows)
+    test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_zscore', True, prediction_scalars, windows)
+    test_nasbench201(api, allotted_explore_time, num_sims, f'{num_sims}_sims_rank', False, prediction_scalars, windows)
 
     prediction_scalars = prediction_scalars[:1]
     test_nasbench201(api, expected_explore_time, num_sims, f'{num_sims}_extended_sims_zscore', True, prediction_scalars, windows)
     test_nasbench201(api, expected_explore_time, num_sims, f'{num_sims}_extended_sims_rank', False, prediction_scalars, windows)
-
-
-def analyze_nasbench201_sim_results(prediction_scalars, windows, prefix):
+def analyze_evolution_simulation_nasbench(prediction_scalars, windows, prefix):
     num_metrics = 2
     num_sims = 64
     num_measurements = 3
@@ -931,15 +927,13 @@ def analyze_nasbench201_sim_results(prediction_scalars, windows, prefix):
     conv_frame = DataFrame(data=np.array(convergences))
     col_names = ['PES', 'WS', 'ZM PARE', 'RM PARE', 'PARE Ratio', 'ZM PNRE', 'RM PNRE', 'PNRE Ratio', 'ZM Spr', 'RM Spr', 'Spr Ratio']
     conv_frame.to_csv(os.path.join(fig_dir, f'{prefix}full_sim_convergences.csv'), header=col_names, index=False)
-
-def analyze_all_nasbench201_sim_results():
+def analyze_all_evolution_simulation_nasbench():
     windows = [1, .5, .25, .001]
     prediction_scalars = [1, .5, .25, .125]
-    analyze_nasbench201_sim_results(prediction_scalars, windows, '64_')
+    analyze_evolution_simulation_nasbench(prediction_scalars, windows, '64_')
 
     prediction_scalars = prediction_scalars[:1]
-    analyze_nasbench201_sim_results(prediction_scalars, windows, '64_extended_')
-
+    analyze_evolution_simulation_nasbench(prediction_scalars, windows, '64_extended_')
 
 def test_spearman():
     spcf = []
@@ -951,7 +945,6 @@ def test_spearman():
         spcf.append(spearman_coef_distinct(keys,vals))
 
         avgd.append(np.mean(np.abs(vals-keys))/size)
-        # print(avg_distance)
     print(np.mean(spcf))
     print(np.mean(avgd))
 
@@ -988,13 +981,13 @@ def get_average_nasbench_arch_size(api):
 
 
 def gen_all_graphs():
-    analyze_all_nasbench201_sim_results()
+    analyze_all_evolution_simulation_nasbench()
     plt.close()
-    analyze_nasbench_archs(16)
+    stochastic_simulation_nasbench(16)
     plt.close()
-    analyze_nasbench_archs(100)
+    stochastic_simulation_nasbench(100)
     plt.close()
-    analyze_nasnet_archs()
+    stochastic_simulation_nasnet()
     plt.close()
 
 if __name__ == '__main__':
@@ -1009,21 +1002,11 @@ if __name__ == '__main__':
 
         # api = get_nasbench201_api()
         # run_nasbench201_sims(api)
-        # analyze_all_nasbench201_sim_results()
-
+        # analyze_all_evolution_simulation_nasbench()
         # get_average_nasnet_arch_size()
         # get_average_nasbench_arch_size(api)
 
-        # analyze_nasbench_archs(16)
-        # analyze_nasbench_archs(100)
-        # analyze_nasnet_archs()
 
         gen_all_graphs()
 
-        # analyze_stuff('zs_set_1\\zs_medium')
-        # analyze_stuff('zs_small')
-        # analyze_stuff('zs_medium')
-        # analyze_slices('zs_small')
-        # analyze_slices('zs_medium')
-        # analyze_slices('zs_set_1\\zs_medium')
 
