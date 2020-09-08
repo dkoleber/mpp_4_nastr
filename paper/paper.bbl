@@ -5,6 +5,43 @@
   \providecommand{\doi}[1]{doi: #1}\else
   \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
 
+\bibitem[Zoph et~al.(2018)Zoph, Vasudevan, Shlens, and Le]{nasnet}
+Barret Zoph, Vijay Vasudevan, Jonathon Shlens, and Quoc~V. Le.
+\newblock {Learning Transferable Architectures for Scalable Image Recognition}.
+\newblock \emph{CVPR}, 2018.
+\newblock URL \url{https://arxiv.org/abs/1707.07012}.
+
+\bibitem[Real et~al.(2017)Real, Aggarwal, Huang, and Le]{amoebanet}
+Esteban Real, Alok Aggarwal, Yanping Huang, and Quoc~V Le.
+\newblock {Regularized Evolution for Image Classifier Architecture Search}.
+\newblock \emph{ICML}, 2017.
+\newblock URL \url{https://arxiv.org/abs/1802.01548}.
+
+\bibitem[Pham et~al.()Pham, Guan, Zoph, and Quoc V.~Le]{enas}
+Hieu Pham, Melody~Y. Guan, Barret Zoph, and Jeff~Dean Quoc V.~Le.
+\newblock {Efficient Neural Architecture Search via Parameter Sharing}.
+\newblock URL \url{https://arxiv.org/abs/1802.03268}.
+
+\bibitem[Liu et~al.(2019)Liu, Simonyan, and Yang]{darts}
+Hanxiao Liu, Karen Simonyan, and Yiming Yang.
+\newblock {DARTS: Differentiable Architecture Search}.
+\newblock \emph{ICLR}, 2019.
+\newblock URL \url{https://arxiv.org/abs/1806.09055}.
+
+\bibitem[Zhou et~al.(2020)Zhou, Zhou, Zhang, Loy, Yi, Zhang, and
+  Ouyang]{econas}
+Dongzhan Zhou, Xinchi Zhou, Wenwei Zhang, Chen~Change Loy, Shuai Yi, Xuesen
+  Zhang, and Wanli Ouyang.
+\newblock {EcoNAS: Finding Proxies for Economical Neural Architecture Search}.
+\newblock 2020.
+\newblock URL \url{https://arxiv.org/pdf/2001.01233.pdf}.
+
+\bibitem[Klein et~al.()Klein, Falkner, Springenberg, and Hutter]{bayesian_pred}
+Aaron Klein, Stefan Falkner, Jost~Tobias Springenberg, and Frank Hutter.
+\newblock Learning curve prediction with bayesian nerual networks.
+\newblock URL
+  \url{https://ml.informatik.uni-freiburg.de/papers/17-ICLR-LCNet.pdf}.
+
 \bibitem[Baker et~al.()Baker, Gupta, Raskar, and Naik]{vsvr_pred}
 Bowen Baker, Otkrist Gupta, Ramesh Raskar, and Nikhil Naik.
 \newblock Practical neural network performance prediction for early stopping.
@@ -15,33 +52,6 @@ Boyang Deng, Junjie Yan, and Dahua Lin.
 \newblock \emph{CoRR}, 2017.
 \newblock URL \url{https://arxiv.org/abs/1712.03351}.
 
-\bibitem[Domhan et~al.()Domhan, Springenberg, and Hutter]{hparam_opt_1}
-Tobias Domhan, Jost~Tobias Springenberg, and Frank Hutter.
-\newblock {Speeding up Automatic Hyperparameter Optimization of Deep Neural
-  Networks by Extrapolation of Learning Curves}.
-\newblock URL
-  \url{https://ml.informatik.uni-freiburg.de/papers/15-IJCAI-Extrapolation_of_Learning_Curves.pdf}.
-
-\bibitem[Dong and Yang(2020)]{nasbench201}
-Xuanyi Dong and Yi~Yang.
-\newblock {NAS-Bench-201: Extending the Scope of Reproducible Neural
-  Architecture Search}.
-\newblock \emph{ICLR}, 2020.
-\newblock URL \url{https://arxiv.org/abs/2001.00326}.
-
-\bibitem[Elsken et~al.(2019)Elsken, Metzen, and Hutter]{lemonade}
-Thomas Elsken, Jan~Hendrik Metzen, and Frank Hutter.
-\newblock {Efficient Multi-objective Neural Architecture Search via Lamarckian
-  Evolution}.
-\newblock \emph{ICLR}, 2019.
-\newblock URL \url{https://arxiv.org/abs/1804.09081}.
-
-\bibitem[Klein et~al.()Klein, Falkner, Springenberg, and Hutter]{bayesian_pred}
-Aaron Klein, Stefan Falkner, Jost~Tobias Springenberg, and Frank Hutter.
-\newblock Learning curve prediction with bayesian nerual networks.
-\newblock URL
-  \url{https://ml.informatik.uni-freiburg.de/papers/17-ICLR-LCNet.pdf}.
-
 \bibitem[Liu et~al.(2018)Liu, Zoph, Neumann, Shlens, Hua, Li, Fei-Fei, Yuille,
   Huang, and Murphy]{pnas}
 Chenxi Liu, Barret Zoph, Maxim Neumann, Jonathon Shlens, Wei Hua, Li-Jia Li,
@@ -50,27 +60,10 @@ Chenxi Liu, Barret Zoph, Maxim Neumann, Jonathon Shlens, Wei Hua, Li-Jia Li,
 \newblock \emph{ECCV}, 2018.
 \newblock URL \url{https://arxiv.org/abs/1712.00559}.
 
-\bibitem[Liu et~al.(2019)Liu, Simonyan, and Yang]{darts}
-Hanxiao Liu, Karen Simonyan, and Yiming Yang.
-\newblock {DARTS: Differentiable Architecture Search}.
-\newblock \emph{ICLR}, 2019.
-\newblock URL \url{https://arxiv.org/abs/1806.09055}.
-
-\bibitem[Pham et~al.()Pham, Guan, Zoph, and Quoc V.~Le]{enas}
-Hieu Pham, Melody~Y. Guan, Barret Zoph, and Jeff~Dean Quoc V.~Le.
-\newblock {Efficient Neural Architecture Search via Parameter Sharing}.
-\newblock URL \url{https://arxiv.org/abs/1802.03268}.
-
-\bibitem[Real et~al.(2017)Real, Aggarwal, Huang, and Le]{amoebanet}
-Esteban Real, Alok Aggarwal, Yanping Huang, and Quoc~V Le.
-\newblock {Regularized Evolution for Image Classifier Architecture Search}.
-\newblock \emph{ICML}, 2017.
-\newblock URL \url{https://arxiv.org/abs/1802.01548}.
-
-\bibitem[So et~al.()So, Liang, and Le]{evolved_transformer}
-David~R. So, Chen Liang, and Quoc~V. Le.
-\newblock {The Evolved Transformer}.
-\newblock URL \url{https://arxiv.org/abs/1901.11117}.
+\bibitem[Zoph and Le()]{rl_nas}
+Barret Zoph and Quoc~V. Le.
+\newblock {Neural Architecture Search with Reinforcement Learning}.
+\newblock URL \url{https://arxiv.org/abs/1611.01578}.
 
 \bibitem[Tan et~al.(2019)Tan, Chen, Pang, Vasudevan, Sandler, Howard, and
   Le]{mnas}
@@ -89,6 +82,18 @@ Bichen Wu, Xiaoliang Dai, Peizhao Zhang, Yanghan Wang, Fei Sun, Yiming Wu,
 \newblock 2019.
 \newblock URL \url{https://arxiv.org/abs/1812.03443}.
 
+\bibitem[Elsken et~al.(2019)Elsken, Metzen, and Hutter]{lemonade}
+Thomas Elsken, Jan~Hendrik Metzen, and Frank Hutter.
+\newblock {Efficient Multi-objective Neural Architecture Search via Lamarckian
+  Evolution}.
+\newblock \emph{ICLR}, 2019.
+\newblock URL \url{https://arxiv.org/abs/1804.09081}.
+
+\bibitem[So et~al.()So, Liang, and Le]{evolved_transformer}
+David~R. So, Chen Liang, and Quoc~V. Le.
+\newblock {The Evolved Transformer}.
+\newblock URL \url{https://arxiv.org/abs/1901.11117}.
+
 \bibitem[Yang et~al.()Yang, Wang, Chen, Shi, Xu, Xu, Tian, and Xu]{cars}
 Zhaohui Yang, Yunhe Wang, Xinghao Chen, Boxin Shi, Chao Xu, Chunjing Xu,
   Qi~Tian, and Chang Xu.
@@ -96,23 +101,18 @@ Zhaohui Yang, Yunhe Wang, Xinghao Chen, Boxin Shi, Chao Xu, Chunjing Xu,
   Search}.
 \newblock URL \url{https://arxiv.org/abs/1909.04977}.
 
-\bibitem[Zhou et~al.(2020)Zhou, Zhou, Zhang, Loy, Yi, Zhang, and
-  Ouyang]{econas}
-Dongzhan Zhou, Xinchi Zhou, Wenwei Zhang, Chen~Change Loy, Shuai Yi, Xuesen
-  Zhang, and Wanli Ouyang.
-\newblock {EcoNAS: Finding Proxies for Economical Neural Architecture Search}.
-\newblock 2020.
-\newblock URL \url{https://arxiv.org/pdf/2001.01233.pdf}.
+\bibitem[Domhan et~al.()Domhan, Springenberg, and Hutter]{hparam_opt_1}
+Tobias Domhan, Jost~Tobias Springenberg, and Frank Hutter.
+\newblock {Speeding up Automatic Hyperparameter Optimization of Deep Neural
+  Networks by Extrapolation of Learning Curves}.
+\newblock URL
+  \url{https://ml.informatik.uni-freiburg.de/papers/15-IJCAI-Extrapolation_of_Learning_Curves.pdf}.
 
-\bibitem[Zoph and Le()]{rl_nas}
-Barret Zoph and Quoc~V. Le.
-\newblock {Neural Architecture Search with Reinforcement Learning}.
-\newblock URL \url{https://arxiv.org/abs/1611.01578}.
-
-\bibitem[Zoph et~al.(2018)Zoph, Vasudevan, Shlens, and Le]{nasnet}
-Barret Zoph, Vijay Vasudevan, Jonathon Shlens, and Quoc~V. Le.
-\newblock {Learning Transferable Architectures for Scalable Image Recognition}.
-\newblock \emph{CVPR}, 2018.
-\newblock URL \url{https://arxiv.org/abs/1707.07012}.
+\bibitem[Dong and Yang(2020)]{nasbench201}
+Xuanyi Dong and Yi~Yang.
+\newblock {NAS-Bench-201: Extending the Scope of Reproducible Neural
+  Architecture Search}.
+\newblock \emph{ICLR}, 2020.
+\newblock URL \url{https://arxiv.org/abs/2001.00326}.
 
 \end{thebibliography}
