@@ -1,4 +1,4 @@
-## Model-less Performance Prediction for Neural Architecture Search Acceleration
+## Model-less Performance Prediction for Neural Architecture Search Time Reduction
 
 This repository contains experimentation code for all experiments done in <em>Model-less Performance Prediction for Neural Architecture Search Time Reduction</em>.
 
